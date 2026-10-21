@@ -1,28 +1,63 @@
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/vendor
+# ───────── Dependencies (regenerate on the server with `npm install`) ─────────
+node_modules
+
+# ───────── Build output (regenerate with `npm run api:build` / `web:build`) ─────────
+dist
+build
+*.tsbuildinfo
+
+# ───────── Caches ─────────
+.vite
+coverage
+.eslintcache
+.cache
+
+# ───────── Env / secrets (create fresh per environment from .env.example) ─────────
+# `.env` at ANY depth is ignored (apps/api/.env, apps/web/.env) — but the
+# `.env.example` templates are deliberately NOT ignored, so they stay in the repo.
 .env
-.env.backup
-.env.production
-.phpunit.result.cache
-Homestead.json
-Homestead.yaml
-npm-debug.log
-yarn-error.log
-/.idea
-/.vscode
+.env.local
+.env.*.local
+*.local
+
+# ───────── Logs ─────────
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Custom Excel Import/Export handling
-/storage/app/imports/*
-/storage/app/public/error_reports/*
-/storage/app/public/checklists/*
+# ───────── Uploaded files (user data — keep the folder, ignore its contents) ─────────
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
 
-# Laravel Framework storage
-/storage/framework/cache/data/*
-/storage/framework/sessions/*
-/storage/framework/testing/*
-/storage/framework/views/*.php
+# ───────── Exported / imported spreadsheets (data, not source) ─────────
+*.xlsx
+
+# ───────── Editor / OS junk ─────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Playwright MCP screenshots/snapshots (local QA artifacts)
+.playwright-mcp/
+
+# Claude Code local session config (per-machine, not shared)
+.claude/
+
+# ───────── Local server snapshots pulled for migration/debugging (contain real .env secrets) ─────────
+fromServer/
+
+# ───────── Local backup copies of env files (never commit real secrets) ─────────
+*.env.bak
+.env.*.bak
+*.env.*.bak
+
+# ───────── Database dumps (real company data — never commit) ─────────
+*.sql
+!deploy/migrations/*.sql
+*:Zone.Identifier
