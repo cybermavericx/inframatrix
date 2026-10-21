@@ -1,3 +1,5 @@
+import { MAIL_FOOTER_HTML } from '../branding';
+
 /**
  * Wrap arbitrary body HTML in a clean, email-client-safe InfraMatrix shell. Uses only inline styles
  * and a table layout (no external CSS) so it renders consistently across mail clients.
@@ -24,7 +26,7 @@ export function brandwrap(title: string, bodyHtml: string): string {
             <tr>
               <td style="padding:20px 28px 28px 28px;">
                 <hr style="border:none;border-top:1px solid #e4e7eb;margin:0 0 12px 0;" />
-                <span style="font-size:12px;color:#9aa5b1;">Open-source Infrastructure Tracker by <a href="https://muhammednoufal.cybermavericx.com" style="color:#9aa5b1;">Muhammed Noufal</a> · <a href="https://cybermavericx.com" style="color:#9aa5b1;">cybermavericx.com</a></span>
+                <span style="font-size:12px;color:#9aa5b1;">${MAIL_FOOTER_HTML}</span>
               </td>
             </tr>
           </table>

@@ -94,7 +94,7 @@ h3 { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
 }
 .appfoot-fixed { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; }
 .appfoot { font-size: 13px; }
-/* InfraMatrix + author name: matching neon-gradient wordmarks (bold); connector text stays muted/normal */
+/* InfraMatrix + org name (branding.ts): matching neon-gradient wordmarks (bold); connector text stays muted/normal */
 .foot-brand, .foot-org {
   font-family: var(--font-display);
   font-weight: 700; letter-spacing: .01em;
