@@ -551,7 +551,7 @@ Disabled is selected; switching away from Disabled and saving clears any reason 
 Every create / edit / delete is now logged with **who, when, old → new** and shown in an **Activity**
 timeline on the record's detail view (click a row): Projects, Servers, Environments, Git Providers,
 Integration Types, Accounts, Clients, Vendors, Vendor Services, Payments, Jobs. Changes made by one save
-are grouped into one entry. Foreign keys show **names** ("Hostinger → vm-tw-dxb-lnx02"), not ids. Changes
+are grouped into one entry. Foreign keys show **names** ("Hostinger → demo-server-01"), not ids. Changes
 to a project's environments/integrations also appear on the **Project's** Activity. Excel imports and
 project publish/revert are logged too. **Users → History** shows account events (created, edited,
 password changed, 2FA on/off/reset, deleted) — never the password itself.
