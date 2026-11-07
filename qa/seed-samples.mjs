@@ -28,7 +28,7 @@ const git = gits[0] || (await post('/infra/git-providers', { name: `${SAMPLE} Gi
 
 // 1) a publishable (ready) sample: POC + 1 fully-filled staging env, CI/CD on
 const ready = (await post('/infra/projects', { name: `${SAMPLE} Project 01 (Publishable)`, status: 'active', pocUserId: admin.id, notes: 'Fully configured — should show READY and allow Publish.' })).data;
-await post('/infra/environments', { projectId: ready.id, type: 'staging', url: 'https://staging.qa-sample.test', serverId: srv.id, gitProviderId: git.id, repoUrl: 'https://github.com/qa/sample', repoBranch: 'main', cicdConfigured: true });
+await post('/infra/environments', { projectId: ready.id, type: 'staging', url: 'https://staging.qa-sample.test', serverId: srv.id, gitProviderId: git.id, repoUrl: 'https://github.com/qa/sample', repoBranch: 'main', cicdStatus: 'auto' });
 
 // 2) a draft sample: POC but no environment (blocked) so the gating is visible
 const draft = (await post('/infra/projects', { name: `${SAMPLE} Project 02 (Draft - needs env)`, status: 'on_hold', pocUserId: admin.id, notes: 'Has a POC but no environment — should stay DRAFT, Publish disabled.' })).data;

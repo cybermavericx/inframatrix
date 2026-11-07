@@ -11,10 +11,14 @@ import type { Response } from 'express';
 import { RESOURCE_ENTITIES, RESOURCE_ENUMS } from './registry';
 import { AUDIT_TYPE_BY_RESOURCE, recordLifecycle, recordUpdate } from '../audit/audit.util';
 import { User } from '../users/entities/user.entity';
+import { ModuleEntity } from '../rbac/entities/module.entity';
+import { AppEntity } from '../rbac/entities/app.entity';
+import { GroupEntity } from '../rbac/entities/group.entity';
+import { PermissionEntity } from '../rbac/entities/permission.entity';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { buildAbility } from '../common/casl/ability.factory';
+import { buildAbility, type AppAbility } from '../common/casl/ability.factory';
 import type { AuthUser } from '../auth/auth.types';
 
 type ImportResult = { created: number; updated: number; skipped: number; errors: string[] };
@@ -35,6 +39,10 @@ const EXPORT_TEMPLATE_FROM: Record<string, string> = {
   'jobbag.vendor-services': 'vendor',
 };
 
+/** The RBAC tables have no permission of their own — they're only reachable through a user, so
+ *  following a relation into them is governed by read on core.users. */
+const RBAC_ENTITIES: unknown[] = [ModuleEntity, AppEntity, GroupEntity, PermissionEntity];
+
 @UseGuards(JwtAuthGuard)
 @Controller('data')
 export class DataController {
@@ -47,6 +55,15 @@ export class DataController {
     const entity = RESOURCE_ENTITIES[resource];
     if (!entity) throw new NotFoundException(`Unknown resource: ${resource}`);
     return this.dataSource.getRepository(entity);
+  }
+
+  /** Whether this user may read the entity a relation leads to. Fails closed: an entity no permission
+   *  maps to can't be followed by anyone, so a newly added relation is hidden until it's mapped. */
+  private canReadEntity(ability: AppAbility, target: unknown): boolean {
+    const resource = RBAC_ENTITIES.includes(target)
+      ? 'core.users'
+      : Object.keys(RESOURCE_ENTITIES).find((k) => RESOURCE_ENTITIES[k] === target);
+    return !!resource && ability.can('read', resource);
   }
 
   private columns(repo: Repository<ObjectLiteral>): string[] {
@@ -132,7 +149,7 @@ export class DataController {
   }
 
   /** "Reference" worksheet: relation records as ID → label, plus dropdown allowed values. */
-  private async addReferenceSheet(wb: ExcelJS.Workbook, entries: { resource: string; repo: Repository<ObjectLiteral> }[]) {
+  private async addReferenceSheet(wb: ExcelJS.Workbook, entries: { resource: string; repo: Repository<ObjectLiteral> }[], ability: AppAbility) {
     const ref = wb.addWorksheet('Reference');
     ref.getColumn(1).width = 32;
     ref.getColumn(2).width = 44;
@@ -155,6 +172,8 @@ export class DataController {
         const fkProp = fkCol?.propertyName ?? rel.joinColumns[0].propertyName;
         if (seen.has(fkProp)) continue;
         seen.add(fkProp);
+        // this sheet lists the target's records by name, so it needs read on the target too
+        if (!this.canReadEntity(ability, rel.inverseEntityMetadata.target)) continue;
         const targetRepo = this.dataSource.getRepository(rel.inverseEntityMetadata.target);
         const labelCol = this.pickLabelCol(targetRepo.metadata);
         const rows = await targetRepo.find({ take: 1000 });
@@ -307,7 +326,8 @@ export class DataController {
 
   @Get('bundle/projects/export')
   async exportProjectsBundle(@CurrentUser() user: AuthUser, @Res() res: Response) {
-    if (!buildAbility(user.permissions).can('read', 'infra.projects')) throw new ForbiddenException();
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', 'infra.projects')) throw new ForbiddenException();
     const projRepo = this.repoFor('infra.projects');
     const envRepo = this.repoFor('infra.environments');
     const users = await this.lookupMap(this.dataSource.getRepository(User), 'email');
@@ -346,7 +366,7 @@ export class DataController {
       exclude: ['id', 'projectId', 'serverId', 'gitProviderId', 'checklistSubmittedById'],
       hidden: ['importUid'],
     });
-    await this.addReferenceSheet(wb, [{ resource: 'infra.projects', repo: projRepo }, { resource: 'infra.environments', repo: envRepo }]);
+    await this.addReferenceSheet(wb, [{ resource: 'infra.projects', repo: projRepo }, { resource: 'infra.environments', repo: envRepo }], ability);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="inframatrix-projects.xlsx"');
@@ -517,12 +537,12 @@ export class DataController {
    *  `labelField` (to-one only) names which of the target's own fields is the one the *existing*
    *  name-based link import (relationLinksFor/buildLinks, used by the default export/import) already
    *  matches by — the field picker marks exactly that one field writable, reusing that exact mechanism
-   *  rather than inventing a second one. */
-  private relationsFor(repo: Repository<ObjectLiteral>, chain: unknown[] = [], nested = false): { key: string; label: string; cardinality: 'one' | 'many'; labelField: string | null }[] {
+   *  rather than inventing a second one. A relation into something this user can't read isn't offered. */
+  private relationsFor(repo: Repository<ObjectLiteral>, ability: AppAbility, chain: unknown[] = [], nested = false): { key: string; label: string; cardinality: 'one' | 'many'; labelField: string | null }[] {
     // a related User is a leaf (name/email only); and never offer a relation back to an entity already on
     // the path (Project → Environments → Project…): it only produces circular, confusing trees
     if (nested && repo.metadata.target === User) return [];
-    return repo.metadata.relations.filter((r) => !chain.includes(r.inverseEntityMetadata.target)).map((r) => {
+    return repo.metadata.relations.filter((r) => !chain.includes(r.inverseEntityMetadata.target) && this.canReadEntity(ability, r.inverseEntityMetadata.target)).map((r) => {
       const cardinality: 'one' | 'many' = r.relationType === 'many-to-one' || r.relationType === 'one-to-one' ? 'one' : 'many';
       const targetRepo = this.dataSource.getRepository(r.inverseEntityMetadata.target);
       return {
@@ -550,7 +570,8 @@ export class DataController {
 
   @Get(':resource/fields')
   fields(@Param('resource') resource: string, @Query('path') path: string | undefined, @CurrentUser() user: AuthUser) {
-    if (!buildAbility(user.permissions).can('read', resource)) throw new ForbiddenException();
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', resource)) throw new ForbiddenException();
     let repo = this.repoFor(resource);
     const chain: unknown[] = [repo.metadata.target];
     let nested = false;
@@ -560,6 +581,7 @@ export class DataController {
       for (const seg of segments) {
         const step = this.relationStep(repo, seg);
         if (!step) throw new BadRequestException(`Unknown relation: ${seg}`);
+        if (!this.canReadEntity(ability, step.targetRepo.metadata.target)) throw new ForbiddenException();
         repo = step.targetRepo;
         chain.push(repo.metadata.target);
         nested = true;
@@ -567,7 +589,7 @@ export class DataController {
     }
     return {
       own: this.ownFieldsFor(repo, nested),
-      relations: this.relationsFor(repo, chain, nested),
+      relations: this.relationsFor(repo, ability, chain, nested),
       // whether THIS node's entity has a stable re-import identity — only meaningful at the root
       // (path=''), where the picker uses it to decide whether "Import-compatible export" can be offered.
       hasImportUid: repo.metadata.columns.some((c) => c.propertyName === 'importUid'),
@@ -578,9 +600,10 @@ export class DataController {
    * Validates + resolves one requested export field path end to end (e.g. "environments.project.name"):
    * every segment but the last must be a real relation off the previous entity, the last must be a real
    * own field of the entity reached — walked fresh against the live metadata graph, so the query string
-   * can never reach a property this doesn't confirm exists. Returns null for anything that doesn't check out.
+   * can never reach a property this doesn't confirm exists. Returns null for anything that doesn't check out,
+   * and throws 403 on a hop into something this user can't read.
    */
-  private walkFieldPath(rootRepo: Repository<ObjectLiteral>, fullPath: string): FieldPathWalk | null {
+  private walkFieldPath(rootRepo: Repository<ObjectLiteral>, fullPath: string, ability: AppAbility): FieldPathWalk | null {
     const segments = fullPath.split('.').filter(Boolean);
     if (!segments.length || segments.length > DataController.MAX_FIELD_DEPTH) return null;
     const ownField = segments[segments.length - 1];
@@ -589,6 +612,7 @@ export class DataController {
     for (const seg of segments.slice(0, -1)) {
       const step = this.relationStep(repo, seg);
       if (!step) return null;
+      if (!this.canReadEntity(ability, step.targetRepo.metadata.target)) throw new ForbiddenException();
       hops.push({ key: seg, cardinality: step.cardinality, label: this.humanize(seg), labelField: step.labelField });
       repo = step.targetRepo;
     }
@@ -636,7 +660,8 @@ export class DataController {
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    if (!buildAbility(user.permissions).can('read', resource)) throw new ForbiddenException();
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', resource)) throw new ForbiddenException();
     const repo = this.repoFor(resource);
     // Optional equality filter from the query string (e.g. ?serverId=5) — only real columns on this
     // resource are honoured, so a related panel (e.g. "Hosting on this server") can export exactly the
@@ -662,7 +687,7 @@ export class DataController {
       const requested = fieldsParam.split(',').map((s) => s.trim()).filter(Boolean);
       const resolved: { path: string; walked: FieldPathWalk }[] = [];
       for (const p of requested) {
-        const walked = this.walkFieldPath(repo, p);
+        const walked = this.walkFieldPath(repo, p, ability);
         if (walked) resolved.push({ path: p, walked });
       }
       if (!resolved.length) throw new BadRequestException('No valid fields selected.');
@@ -740,7 +765,10 @@ export class DataController {
 
     // ---- Default: every column + relation-label columns, plus the reference/import-template sheet
     // (this shape is what re-import expects, so it stays the default when no field list is given). ----
-    const links = await this.buildLinks(repo);
+    // a relation the user can't read loses its name column; its raw id stays hidden too. Import reads
+    // columns by header, so re-importing a sheet without that column leaves the link as it was.
+    const allLinks = await this.buildLinks(repo);
+    const links = allLinks.filter((l) => this.canReadEntity(ability, l.targetRepo.metadata.target));
     const wb = new ExcelJS.Workbook();
     // each relation FK (vendorId, clientId, …) is shown as a readable name column and the raw id is hidden
     const rows = await (filtered ? repo.find({ where }) : repo.find());
@@ -765,9 +793,9 @@ export class DataController {
         ...(hasUid ? [{ header: 'importUid', value: (r: ObjectLiteral) => r.importUid ?? '' }] : []),
         ...links.map((l) => ({ header: l.header, value: (r: ObjectLiteral) => l.toLabel.get(r[l.fkProp] as number) ?? '' })),
       ],
-      exclude: ['id', 'importUid', ...links.map((l) => l.fkProp)],
+      exclude: ['id', 'importUid', ...allLinks.map((l) => l.fkProp)],
     });
-    await this.addReferenceSheet(wb, [{ resource, repo }]);
+    await this.addReferenceSheet(wb, [{ resource, repo }], ability);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${resource.replace(/\./g, '-')}.xlsx"`);
