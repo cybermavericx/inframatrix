@@ -145,7 +145,7 @@ async function run() {
   const POC = admin.id;        // admin is always present
   const SRV = await mkServer();
   const GIT = await mkGit();
-  const FULL = (over = {}) => ({ type: 'staging', url: 'https://qa.test', serverId: SRV, gitProviderId: GIT, repoUrl: 'https://git/qa', repoBranch: 'main', cicdConfigured: true, ...over });
+  const FULL = (over = {}) => ({ type: 'staging', url: 'https://qa.test', serverId: SRV, gitProviderId: GIT, repoUrl: 'https://git/qa', repoBranch: 'main', cicdStatus: 'auto', ...over });
 
   console.log('\n=== A. Project-only / no-POC (publish must reject) ===');
   await expectPublish((await mkProject(1, 'no POC, no env', { pocUserId: null })).id, false, 'A1 no POC, no env');
@@ -156,9 +156,9 @@ async function run() {
   await expectPublish(b1.id, false, 'B1 env missing required fields');
   const b2 = await mkProject(4, 'full env CI/CD on', { pocUserId: POC }); await mkEnv(b2.id, FULL());
   await expectPublish(b2.id, true, 'B2 full env, CI/CD on');
-  const b3 = await mkProject(5, 'CI/CD off no reason', { pocUserId: POC }); await mkEnv(b3.id, FULL({ cicdConfigured: false }));
+  const b3 = await mkProject(5, 'CI/CD off no reason', { pocUserId: POC }); await mkEnv(b3.id, FULL({ cicdStatus: 'disabled' }));
   await expectPublish(b3.id, false, 'B3 CI/CD off, no reason');
-  const b4 = await mkProject(6, 'CI/CD off with reason', { pocUserId: POC }); await mkEnv(b4.id, FULL({ cicdConfigured: false, cicdNotConfiguredReason: 'pipeline pending' }));
+  const b4 = await mkProject(6, 'CI/CD off with reason', { pocUserId: POC }); await mkEnv(b4.id, FULL({ cicdStatus: 'disabled', cicdNotConfiguredReason: 'pipeline pending' }));
   await expectPublish(b4.id, true, 'B4 CI/CD off, with reason');
   const b5 = await mkProject(7, 'one complete + one incomplete env', { pocUserId: POC });
   await mkEnv(b5.id, FULL()); await mkEnv(b5.id, { type: 'uat' }); // 2nd env incomplete
@@ -233,7 +233,7 @@ async function run() {
   const ph = headers(wb.getWorksheet('Projects')); const eh = headers(wb.getWorksheet('Environments'));
   check('F has Projects/Environments/Reference sheets', !!wb.getWorksheet('Projects') && !!wb.getWorksheet('Environments') && !!wb.getWorksheet('Reference'));
   check('F Projects has pocEmail, hides id/pocUserId, keeps importUid', 'pocEmail' in ph && !('id' in ph) && !('pocUserId' in ph) && 'importUid' in ph, Object.keys(ph));
-  check('F Environments has projectName, hides projectId', 'projectName' in eh && !('projectId' in eh), Object.keys(eh));
+  check('F Environments has projectName and visible projectId', 'projectName' in eh && 'projectId' in eh, Object.keys(eh));
 
   console.log('\n=== G. Import idempotency (generic engine, scoped to QA Test integration-types) ===');
   await mkIntType('generic_value', 'B'); // an existing row with an importUid
