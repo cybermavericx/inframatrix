@@ -43,7 +43,7 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 255, nullable: true })
   message?: string | null;
 
-  /** readable name of the record at the time of the change ("Hostinger", "bespokeliving.com · live") —
+  /** readable name of the record at the time of the change ("Hostinger", "example.com · live") —
    *  lets the global Activity Log name a record even after it's been deleted. Null on older rows. */
   @Column({ name: 'entity_label', type: 'varchar', length: 255, nullable: true })
   entityLabel?: string | null;
