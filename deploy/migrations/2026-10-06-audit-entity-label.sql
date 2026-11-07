@@ -1,5 +1,5 @@
 -- Change-log upgrade (Activity Log screens): store each record's readable name on its log rows, so the
--- system-wide Activity Log can say "bespokeliving.com · live" even after that record is deleted, and
+-- system-wide Activity Log can say "example.com · live" even after that record is deleted, and
 -- flag rows that are copies written onto a parent's timeline (so the global log doesn't list them twice).
 -- Additive; existing rows keep NULL / 0 (older history shows "<type> #<id>").
 -- REQUIRED before the new code runs: without these columns the change-log can't be read or written.

@@ -67,7 +67,7 @@ export function recordLabel(repo: Repository<ObjectLiteral>, row: Record<string,
 
 /**
  * Per-field change rows for an update. A foreign-key column (serverId, pocUserId, ...) is logged by
- * the related record's NAME instead of its raw id — "Hostinger → vm-tw-dxb-lnx02", not "13 → 20" —
+ * the related record's NAME instead of its raw id — "Hostinger → demo-server-01", not "13 → 20" —
  * and labelled by the relation ("Server"), like Odoo's chatter does.
  */
 export async function buildChangeRows(

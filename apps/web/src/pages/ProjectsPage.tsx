@@ -546,7 +546,7 @@ export default function ProjectsPage() {
           </div>
         )}
       </td>
-      <td onClick={(e) => e.stopPropagation()}>
+      <td className="row-actions" onClick={(e) => e.stopPropagation()}>
         <button className="btn btn-ghost btn-sm" onClick={() => setViewing({ ...p })}>View</button>
         <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} onClick={() => openProject({ ...p })}>Open</button>
         {canDelete && <button className="btn btn-danger btn-sm" style={{ marginLeft: 6 }} onClick={() => { if (confirm('Delete this project?')) del.mutate(p.id); }}>Del</button>}
@@ -635,7 +635,7 @@ export default function ProjectsPage() {
               </Fragment>
             ))}
             <th>Hosting</th>
-            <th style={{ width: 90 }}></th></tr></thead>
+            <th className="row-actions"></th></tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects yet.</td></tr>}
             {rows.length > 0 && filtered.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects match this filter.</td></tr>}

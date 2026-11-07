@@ -371,7 +371,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
                 : fmt(getPath(row, c))}
             </td>
           ))}
-          <td onClick={(e) => e.stopPropagation()}>
+          <td className="row-actions" onClick={(e) => e.stopPropagation()}>
             {(config.actions ?? []).filter((a) => !a.visible || a.visible(row)).map((a) => (
               canUpdate && (
                 <button key={a.label} className="btn btn-ghost btn-sm" style={{ marginRight: 6 }}
@@ -619,7 +619,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
                   {c.replace(/\./g, ' ')}{sort?.col === c ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
                 </th>
               ))}
-              <th style={{ width: 220 }}></th>
+              <th className="row-actions"></th>
             </tr>
           </thead>
           <tbody>
