@@ -174,7 +174,7 @@ export default function Users() {
         <ExportPicker resource="core.users" title="Users" defaultFields={['name', 'email', 'status']} onClose={() => setExporting(false)} />
       )}
 
-      <div className="grid-2" style={{ alignItems: 'start', gridTemplateColumns: 'minmax(320px, 400px) minmax(0, 1fr)' }}>
+      <div className="grid-2 users-layout">
         <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); upsert.mutate(); }}>
           <div className="card-body">
             <h3 style={{ marginTop: 0 }}>{editingId ? 'Edit user' : 'Create or invite a user'}</h3>
@@ -243,7 +243,7 @@ export default function Users() {
               {canUpdate && <th style={{ width: 32 }}><input type="checkbox" checked={allSel} onChange={toggleAll} /></th>}
               <th onClick={() => view.onSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Name{view.sort?.col === 'name' ? (view.sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>
               <th onClick={() => view.onSort('email')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Email{view.sort?.col === 'email' ? (view.sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>
-              <th>Modules</th><th>MFA</th><th style={{ width: 230 }}></th>
+              <th>Modules</th><th>MFA</th><th className="row-actions"></th>
             </tr></thead>
             <tbody>
               {users.length === 0 && <tr><td colSpan={6} className="empty">No users.</td></tr>}
@@ -259,7 +259,7 @@ export default function Users() {
                     ))}
                   </td>
                   <td><MfaBadge u={u} /></td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
+                  <td className="row-actions">
                     {(canUpdate || canCreate) && <button className="btn btn-ghost btn-sm" onClick={() => startEdit(u)}>Edit</button>}
                     {canUpdate && <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Email this user a set-password link" disabled={sendSetup.isPending} onClick={() => sendSetup.mutate([u.id])}>Send setup</button>}
                     <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Who changed what on this account, and when" onClick={() => setHistoryUser(u)}>History</button>
