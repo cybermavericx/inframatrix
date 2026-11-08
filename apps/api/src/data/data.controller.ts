@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Query, Res,
+  BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Param, Post, Query, Res,
   UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -11,15 +11,13 @@ import type { Response } from 'express';
 import { RESOURCE_ENTITIES, RESOURCE_ENUMS } from './registry';
 import { AUDIT_TYPE_BY_RESOURCE, recordLifecycle, recordUpdate } from '../audit/audit.util';
 import { User } from '../users/entities/user.entity';
-import { ModuleEntity } from '../rbac/entities/module.entity';
-import { AppEntity } from '../rbac/entities/app.entity';
-import { GroupEntity } from '../rbac/entities/group.entity';
-import { PermissionEntity } from '../rbac/entities/permission.entity';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { buildAbility, type AppAbility } from '../common/casl/ability.factory';
 import type { AuthUser } from '../auth/auth.types';
+import { canReadEntity } from './entity-access';
+import { SearchEngine } from './search';
 
 type ImportResult = { created: number; updated: number; skipped: number; errors: string[] };
 type ParsedRow = { row: number; data: Record<string, unknown> };
@@ -39,10 +37,6 @@ const EXPORT_TEMPLATE_FROM: Record<string, string> = {
   'jobbag.vendor-services': 'vendor',
 };
 
-/** The RBAC tables have no permission of their own — they're only reachable through a user, so
- *  following a relation into them is governed by read on core.users. */
-const RBAC_ENTITIES: unknown[] = [ModuleEntity, AppEntity, GroupEntity, PermissionEntity];
-
 @UseGuards(JwtAuthGuard)
 @Controller('data')
 export class DataController {
@@ -57,13 +51,9 @@ export class DataController {
     return this.dataSource.getRepository(entity);
   }
 
-  /** Whether this user may read the entity a relation leads to. Fails closed: an entity no permission
-   *  maps to can't be followed by anyone, so a newly added relation is hidden until it's mapped. */
+  /** See entity-access.ts — the one per-hop read rule shared with the search engine. */
   private canReadEntity(ability: AppAbility, target: unknown): boolean {
-    const resource = RBAC_ENTITIES.includes(target)
-      ? 'core.users'
-      : Object.keys(RESOURCE_ENTITIES).find((k) => RESOURCE_ENTITIES[k] === target);
-    return !!resource && ability.can('read', resource);
+    return canReadEntity(ability, target);
   }
 
   private columns(repo: Repository<ObjectLiteral>): string[] {
@@ -594,6 +584,18 @@ export class DataController {
       // (path=''), where the picker uses it to decide whether "Import-compatible export" can be offered.
       hasImportUid: repo.metadata.columns.some((c) => c.propertyName === 'importUid'),
     };
+  }
+
+  /** Server-side search (Odoo-style domain) over any readable field path: nested AND/OR rules, `any`
+   *  groups over to-many relations, sort, multi-level group-by counts, paging. Read-only and additive —
+   *  the existing list endpoints are unchanged. `body` is typed unknown on purpose: the global
+   *  ValidationPipe skips it and SearchEngine validates every part itself. See data/search.ts. */
+  @Post(':resource/search')
+  @HttpCode(200)
+  search(@Param('resource') resource: string, @Body() body: unknown, @CurrentUser() user: AuthUser) {
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', resource)) throw new ForbiddenException();
+    return new SearchEngine(this.dataSource, ability).run(this.repoFor(resource), body);
   }
 
   /**
