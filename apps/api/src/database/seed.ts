@@ -13,6 +13,8 @@ import { Server } from '../infra/entities/server.entity';
 import { Project } from '../infra/entities/project.entity';
 import { GitProvider } from '../infra/entities/git-provider.entity';
 import { IntegrationType } from '../infra/entities/integration-type.entity';
+import { IntegrationFieldOption } from '../infra/entities/integration-field-option.entity';
+import { IntegrationFieldValue } from '../infra/entities/integration-field-value.entity';
 import { Account } from '../infra/entities/account.entity';
 import { Environment } from '../infra/entities/environment.entity';
 import { Integration } from '../infra/entities/integration.entity';
@@ -42,6 +44,7 @@ const ds = new DataSource({
   entities: [
     User, ModuleEntity, AppEntity, GroupEntity, PermissionEntity, RefreshToken, PasswordReset,
     Server, Project, GitProvider, IntegrationType, Account, Environment, Integration, Invite,
+    IntegrationFieldOption, IntegrationFieldValue,
     Client, Vendor, VendorService, Job, Payment, Reminder, ReminderGroup, Note, Attachment, NotificationLog, Outbox,
   ],
   // PROD-SAFE: only wipe in dev. In production the seed creates/updates the schema without dropping.

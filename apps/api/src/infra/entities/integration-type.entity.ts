@@ -13,6 +13,9 @@ export interface IntegrationTypeField {
    *  or an open denylist ('avoidable'), never both. Purely an authoring-UI concern; validation itself
    *  just checks whichever list is populated. */
   mode?: 'possible' | 'avoidable';
+  /** 'version' = numerically sortable (stored sort key, version operators, outdated status);
+   *  unset/'text' = plain text. Older field defs have no kind and behave exactly as before. */
+  kind?: 'text' | 'version';
 }
 
 @Entity({ name: 'infra_integration_types' })
