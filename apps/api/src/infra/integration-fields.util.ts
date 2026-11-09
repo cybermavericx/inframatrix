@@ -21,7 +21,7 @@ export function computeIntegrationFlags(it: Integration): string[] {
       flags.push(`${it.integrationType?.name} — ${f.label}: "${v}" matches an avoided pattern ("${avoided}").`);
     }
     if (f.possibleValues?.length && !f.possibleValues.some((p) => p.toLowerCase() === vLower)) {
-      flags.push(`${it.integrationType?.name} — ${f.label}: "${v}" is not one of the suggested values.`);
+      flags.push(`${it.integrationType?.name} — ${f.label}: "${v}" is not in the allowed list.`);
     }
   }
   return flags;

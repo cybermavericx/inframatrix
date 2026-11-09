@@ -60,4 +60,5 @@ fromServer/
 # ───────── Database dumps (real company data — never commit) ─────────
 *.sql
 !deploy/migrations/*.sql
+!deploy/rollback/*.sql
 *:Zone.Identifier

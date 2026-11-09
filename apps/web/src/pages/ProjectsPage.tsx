@@ -11,7 +11,7 @@ import { ExportPicker } from '../components/ExportPicker';
 import { useToast } from '../components/Toast';
 import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
-import { computeFieldFlags, computeIntegrationFlags, type IntegrationTypeField } from '../lib/integrationFlags';
+import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
 
 type Row = Record<string, unknown>;
 
@@ -169,8 +169,15 @@ function IntegrationsManager({ environmentId, canEdit }: { environmentId: number
         const isCustom = rType?.behavior === 'custom_fields';
         const rFields = (rType?.fields as IntegrationTypeField[] | undefined) ?? [];
         const rValues = (r.fieldValues as Record<string, string> | undefined) ?? {};
+        const rStatus = (r.fieldStatus as Record<string, { status: string | null; level: string | null }> | undefined) ?? {};
+        // outdated / EOL come from the option's status (admin-set); "line only" = a version without its patch
+        const note = (f: IntegrationTypeField) => {
+          const st = rStatus[f.key];
+          const bits = [st?.status === 'outdated' ? 'outdated' : st?.status === 'eol' ? 'EOL' : '', f.kind === 'version' && st?.level === 'line' ? 'line only' : ''].filter(Boolean);
+          return bits.length ? ` (${bits.join(', ')})` : '';
+        };
         const summary = isCustom
-          ? rFields.map((f) => `${f.label}: ${rValues[f.key] ?? ''}`).filter((s) => !s.endsWith(': ')).join(', ')
+          ? rFields.map((f) => `${f.label}: ${rValues[f.key] ?? ''}${rValues[f.key] ? note(f) : ''}`).filter((s) => !s.endsWith(': ')).join(', ')
           : String(r.keyName ? `${r.keyName}: ${r.value ?? ''}` : (r.value ?? (r.account as Row)?.accountName ?? ''));
         const flags = isCustom ? computeIntegrationFlags(rFields, rValues) : [];
         return (
@@ -190,16 +197,20 @@ function IntegrationsManager({ environmentId, canEdit }: { environmentId: number
               const val = (editing.fieldValues as Record<string, string> | undefined)?.[cf.key] ?? '';
               const flags = computeFieldFlags(cf, val);
               const listId = `cf-${cf.key}`;
+              const list = fixedList(cf);
+              const setVal = (v: string) => setEditing((p) => ({ ...(p ?? {}), fieldValues: { ...((p?.fieldValues as Row) ?? {}), [cf.key]: v } }));
+              // the list is offered as suggestions; any other value still saves and is flagged (dashboard "Flagged")
               return (
                 <div key={cf.key} className="field" style={{ marginTop: 8 }}>
                   <label>{cf.label}</label>
                   <input
                     className="input"
-                    list={cf.possibleValues?.length ? listId : undefined}
+                    list={list.length ? listId : undefined}
                     value={val}
-                    onChange={(e) => setEditing((p) => ({ ...(p ?? {}), fieldValues: { ...((p?.fieldValues as Row) ?? {}), [cf.key]: e.target.value } }))}
+                    placeholder={cf.kind === 'version' ? 'e.g. 8.3.35, or 8.3 if the patch is unknown' : undefined}
+                    onChange={(e) => setVal(e.target.value)}
                   />
-                  {cf.possibleValues?.length ? <datalist id={listId}>{cf.possibleValues.map((s) => <option key={s} value={s} />)}</datalist> : null}
+                  {list.length ? <datalist id={listId}>{list.map((o) => <option key={o} value={o} />)}</datalist> : null}
                   {flags.map((msg) => <div key={msg} className="error-text" style={{ fontSize: 12, marginTop: 2 }}>⚠ {msg}</div>)}
                 </div>
               );
