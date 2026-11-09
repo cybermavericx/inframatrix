@@ -1,5 +1,5 @@
 /**
- * Technology catalog (phase 3): enforced fixed lists, version fields, option status, version
+ * Technology catalog (phase 3): fixed lists (off-list values saved and flagged), version fields, option status, version
  * operators, hasOutdatedTechnology — run after every change.
  *   QA_BASE=http://localhost:3035/api/v1 node qa/catalog.mjs
  *
@@ -69,17 +69,27 @@ async function run(A) {
   const inEnvs = { path: 'project.name', operator: 'eq', value: pr.name };
   const envQ = async (rules, extra = {}) => search(A, 'infra.environments', { filter: { items: [inEnvs, ...rules] }, ...extra });
 
-  console.log('\n=== A. Save rules (enforced lists, version kind, change-only) ===');
+  console.log('\n=== A. Save rules (lists flag, version kind, change-only) ===');
   const opts = async () => (await req(A, 'GET', `/infra/integration-types/${T.id}/options`)).data ?? [];
   const optOf = (list, key, value) => list.find((o) => o.fieldKey === key && o.value === value);
-  check('A1 out-of-list value → 400', (await req(A, 'POST', '/infra/integrations', { environmentId: e6.id, integrationTypeId: T.id, fieldValues: { php: '9.9.9' } })).status === 400);
+  const flagTotal = async () => (await req(A, 'GET', '/dashboard/stats')).data?.integrationFlags?.total;
+  const projFlag = async () => ((await req(A, 'GET', '/infra/projects')).data ?? []).find((p) => p.id === pr.id)?.hasIntegrationFlags;
+  const flags0 = await flagTotal();
+  check('A0 fixtures start unflagged', (await projFlag()) === false);
+  const off = await req(A, 'PATCH', `/infra/integrations/${i2.id}`, { fieldValues: { ...i2.fieldValues, php: '9.9.9' } });
+  check('A1 out-of-list value is saved (200), not refused', off.status === 200 && off.data?.fieldValues?.php === '9.9.9', off.data);
+  check('A1b …and flagged: dashboard "Flagged" +1, project hasIntegrationFlags', (await flagTotal()) === flags0 + 1 && (await projFlag()) === true);
+  check('A1c back in the list → 200 and the flag clears', (await req(A, 'PATCH', `/infra/integrations/${i2.id}`, { fieldValues: { ...i2.fieldValues, php: '8.3.36' } })).status === 200 && (await flagTotal()) === flags0 && (await projFlag()) === false);
   check('A3 version field without a list rejects a non-version', (await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: 'latest' } })).status === 400);
   check('A4 version field without a list accepts 20.11', (await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: '20.11' } })).status === 200);
   // give Edition a fixed list AFTER e1 stored "Legacy": the old value stays, a changed one is checked
   check('A5 adding a fixed list over existing data → 200', (await req(A, 'PATCH', `/infra/integration-types/${T.id}`, { fields: fieldsWith({ edition: ['Pro', 'Basic'] }) })).status === 200);
   const keepOld = await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: '20.11', php: '8.3.35' } });
-  check('A6 unchanged out-of-list value still saves (enforced on change only)', keepOld.status === 200, keepOld.data);
-  check('A7 changing it to another out-of-list value → 400', (await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: '20.11', edition: 'Other' } })).status === 400);
+  check('A6 unchanged out-of-list value still saves', keepOld.status === 200, keepOld.data);
+  check('A6b …and is flagged', (await flagTotal()) === flags0 + 1 && (await projFlag()) === true);
+  const other = await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: '20.11', edition: 'Other' } });
+  check('A7 changing it to another out-of-list value → 200 (flagged, not refused)', other.status === 200 && other.data?.fieldValues?.edition === 'Other', other.data);
+  check('A7b …restore "Legacy" → 200', (await req(A, 'PATCH', `/infra/integrations/${i1.id}`, { fieldValues: { ...i1.fieldValues, nodejs: '20.11', edition: 'Legacy' } })).status === 200);
   check('A2 list match is case-insensitive ("pro" for "Pro")', (await req(A, 'PATCH', `/infra/integrations/${i2.id}`, { fieldValues: { ...i2.fieldValues, edition: 'pro' } })).status === 200);
   const got = await req(A, 'GET', `/infra/integrations/${i1.id}`);
   check('A8 dual-write: JSON holds exactly what was saved', got.data?.fieldValues?.edition === 'Legacy' && got.data?.fieldValues?.nodejs === '20.11' && got.data?.fieldValues?.[QUOTE_KEY] === `it's "v"`, got.data?.fieldValues);

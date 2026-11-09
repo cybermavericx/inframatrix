@@ -27,7 +27,7 @@ export const OPTION_MAX = 255;
 export const isVersionField = (f: IntegrationTypeField) => f.kind === 'version';
 /** Same inference as the web editor: no saved mode → 'avoidable' only if that list is the one filled. */
 const modeOf = (f: IntegrationTypeField) => f.mode ?? (f.avoidableValues?.length ? 'avoidable' : 'possible');
-/** The fixed list in force for a field (empty = free text, not enforced). */
+/** The fixed list for a field (empty = free text). A value outside it is saved but FLAGGED. */
 export const fixedList = (f: IntegrationTypeField): string[] =>
   modeOf(f) === 'possible' ? (f.possibleValues ?? []).map((v) => String(v ?? '').trim()).filter(Boolean) : [];
 
@@ -41,12 +41,13 @@ const fieldsOf = (t: IntegrationType | null | undefined) =>
 
 /**
  * Rules for a value being SAVED (API create/update and spreadsheet import). Only a value that differs
- * from what is stored for that key is checked — existing out-of-list values keep saving untouched and
- * are only reported (backfill), never changed. "Differs" is decided here, against the stored row the
- * caller loaded from the DB, never from anything the browser says.
- *   - fixed list in force → must match an option (case-insensitive)
- *   - version kind        → must contain a version number
+ * from what is stored for that key is checked, so existing values always keep saving untouched.
+ * "Differs" is decided here, against the stored row the caller loaded from the DB, never from
+ * anything the browser says.
+ *   - version kind → must contain a version number
  *   - at most VALUE_MAX characters
+ * A value outside the field's fixed list is NOT refused: it is saved and flagged
+ * (computeIntegrationFlags → dashboard "Flagged" card, which opens the project).
  * Returns the messages (empty = OK).
  */
 export function checkChangedValues(type: IntegrationType | null | undefined, next: unknown, stored: unknown): string[] {
@@ -60,9 +61,7 @@ export function checkChangedValues(type: IntegrationType | null | undefined, nex
     if (!v || v === text(sv[f.key])) continue;
     const label = f.label || f.key;
     if (v.length > VALUE_MAX) { errors.push(`${label}: at most ${VALUE_MAX} characters.`); continue; }
-    const list = fixedList(f);
-    if (list.length && !list.some((o) => fold(o) === fold(v))) errors.push(`${label}: "${v.slice(0, 80)}" is not in the allowed list.`);
-    else if (isVersionField(f) && !versionKey(v)) errors.push(`${label}: "${v.slice(0, 80)}" is not a version number (e.g. 8.3 or 8.3.35).`);
+    if (isVersionField(f) && !versionKey(v)) errors.push(`${label}: "${v.slice(0, 80)}" is not a version number (e.g. 8.3 or 8.3.35).`);
   }
   return errors;
 }

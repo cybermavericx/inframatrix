@@ -199,26 +199,18 @@ function IntegrationsManager({ environmentId, canEdit }: { environmentId: number
               const listId = `cf-${cf.key}`;
               const list = fixedList(cf);
               const setVal = (v: string) => setEditing((p) => ({ ...(p ?? {}), fieldValues: { ...((p?.fieldValues as Row) ?? {}), [cf.key]: v } }));
-              // an existing value outside the list stays selectable so saving other fields keeps it
-              const keepOld = val && !list.some((o) => o.toLowerCase() === val.trim().toLowerCase());
+              // the list is offered as suggestions; any other value still saves and is flagged (dashboard "Flagged")
               return (
                 <div key={cf.key} className="field" style={{ marginTop: 8 }}>
                   <label>{cf.label}</label>
-                  {list.length ? (
-                    <select className="input" value={val} onChange={(e) => setVal(e.target.value)}>
-                      <option value="">—</option>
-                      {keepOld && <option value={val}>{val} (not in the list)</option>}
-                      {list.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      className="input"
-                      list={cf.possibleValues?.length ? listId : undefined}
-                      value={val}
-                      placeholder={cf.kind === 'version' ? 'e.g. 8.3.35, or 8.3 if the patch is unknown' : undefined}
-                      onChange={(e) => setVal(e.target.value)}
-                    />
-                  )}
+                  <input
+                    className="input"
+                    list={list.length ? listId : undefined}
+                    value={val}
+                    placeholder={cf.kind === 'version' ? 'e.g. 8.3.35, or 8.3 if the patch is unknown' : undefined}
+                    onChange={(e) => setVal(e.target.value)}
+                  />
+                  {list.length ? <datalist id={listId}>{list.map((o) => <option key={o} value={o} />)}</datalist> : null}
                   {flags.map((msg) => <div key={msg} className="error-text" style={{ fontSize: 12, marginTop: 2 }}>⚠ {msg}</div>)}
                 </div>
               );

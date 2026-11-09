@@ -114,7 +114,7 @@ export function FieldDefsEditor({ value, onChange, typeId }: { value: unknown; o
         const mode = inferMode(r);
         // Switching mode clears the list that's no longer shown, so a hidden stale list can't still flag values.
         const setMode = (m: 'possible' | 'avoidable') => update(i, m === 'possible' ? { mode: m, avoidableValues: [] } : { mode: m, possibleValues: [] });
-        const enforced = fixedList(r).length > 0;
+        const listed = fixedList(r).length > 0;
         return (
           <div key={i} className="card" style={{ padding: 10 }}>
             <div className="grid-2">
@@ -149,10 +149,10 @@ export function FieldDefsEditor({ value, onChange, typeId }: { value: unknown; o
             </div>
             {mode === 'possible' ? (
               <div className="field" style={{ marginTop: 8 }}>
-                <label>Allowed values (one per line — a new or changed value must be one of these)</label>
+                <label>Allowed values (one per line — any other value is saved but flagged)</label>
                 <LinesTextarea value={r.possibleValues} onChange={(arr) => update(i, { possibleValues: arr })} />
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  {enforced ? 'Enforced: saving any other value is refused. Existing values are kept as they are.' : 'Empty list: free text, not enforced.'}
+                  {listed ? 'A value outside this list is saved, but flagged on the dashboard ("Flagged").' : 'Empty list: free text, never flagged for the list.'}
                   {r.kind === 'version' ? ' For versions, enter the detail you track: an exact patch (8.3.35) or a line (8.3 = patch unknown).' : ''}
                 </div>
               </div>
