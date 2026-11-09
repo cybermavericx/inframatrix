@@ -3,6 +3,12 @@ import type { DataSource, EntityMetadata, ObjectLiteral, Repository, SelectQuery
 import type { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
 import type { RelationMetadata } from 'typeorm/metadata/RelationMetadata';
 import { User } from '../users/entities/user.entity';
+import { Environment } from '../infra/entities/environment.entity';
+import { Integration } from '../infra/entities/integration.entity';
+import { IntegrationType } from '../infra/entities/integration-type.entity';
+import { IntegrationFieldOption, OPTION_STATUSES } from '../infra/entities/integration-field-option.entity';
+import { IntegrationFieldValue } from '../infra/entities/integration-field-value.entity';
+import { versionKey } from '../infra/version-key';
 import type { AppAbility } from '../common/casl/ability.factory';
 import { canReadEntity } from './entity-access';
 
@@ -24,7 +30,35 @@ const OPERATORS: Record<Kind, string[]> = {
   date: RANGE,
   boolean: ['eq', 'neq', 'isNull', 'notNull'],
 };
-const ALL_OPERATORS = new Set(Object.values(OPERATORS).flat());
+/**
+ * Custom-field paths (environments only — directly, or inside an `any: "environments"` group):
+ *   cf:<typeId>:<fieldKey>         the field's value (rules, sort, group-by)
+ *   cfstatus:<typeId>:<fieldKey>   its option's status: current | outdated | eol (sort, group-by)
+ *   computed:hasOutdatedTechnology true when any of the environment's values is an outdated/eol option
+ * The field key may hold any text; it is matched EXACTLY against the type's definition and only ever
+ * sent as a bound parameter. Status comes from the option row, so changing an option's status changes
+ * results at once without editing any integration.
+ *
+ * VERSION SEMANTICS (version-kind fields; keys from infra/version-key.ts). A line-level value ("8.3",
+ * "10.x") has an unknown patch, so it is treated as "might be":
+ *   v_eq   8.3     same key: "8.3" matches "8.3" and "php 8.3"; NOT "8.3.0" (a bare 8.3 is a line)
+ *   v_line 8.3.x   the line itself or anything inside it (8.3, 8.3.0, 8.3.35)
+ *   v_lt   8.3.36  older: 8.3.35, 8.2, 7.4 — AND a line-level "8.3" (could be an older patch; the UI
+ *                  marks it "line only"). v_lt 8.3 (a line) = older than the whole line: 8.2.x down.
+ *   v_gt   8.3.36  newer: 8.3.37, 8.4 — AND a line-level "8.3" (could be newer). v_gt 8.3 (a line) =
+ *                  newer than the whole line: 8.4 up, never 8.3.x.
+ *   v_lte / v_gte  as above, plus the line itself and anything inside it.
+ *   status [..]    the value's option status is one of the list (a free-text value has none).
+ * Negative rules (neq/nin/ncontains) mean "no value of this field matches" — an environment without
+ * the field is included, like neq on a plain column.
+ */
+const CF_TEXT = ['eq', 'neq', 'in', 'nin', 'contains', 'ncontains', 'starts', 'isNull', 'notNull', 'status'];
+const CF_VERSION = [...CF_TEXT, 'v_eq', 'v_line', 'v_lt', 'v_lte', 'v_gt', 'v_gte'];
+const COMPUTED = new Set(['hasOutdatedTechnology']);
+const SPECIAL = /^(cf|cfstatus):(\d{1,9}):([\s\S]{1,190})$/;
+type Special = { kind: 'computed'; name: string } | { kind: 'cf' | 'cfstatus'; typeId: number; key: string };
+type Cols = { value: string; sortKey: string; status: string };
+const ALL_OPERATORS = new Set([...Object.values(OPERATORS).flat(), ...CF_VERSION]);
 
 // Hard stops against an abusive request, not UI limits. `depth` counts relation hops + the final field,
 // the same as the export field tree (MAX_FIELD_DEPTH), across nested `any` groups too.
@@ -70,6 +104,8 @@ export class SearchEngine {
   private readonly params: Record<string, unknown> = {};
   private seq = 0;
   private rules = 0;
+  /** custom_fields types named by cf: paths in this request, loaded once before compiling */
+  private types = new Map<number, IntegrationType>();
 
   constructor(private readonly dataSource: DataSource, private readonly ability: AppAbility) {}
 
@@ -78,6 +114,7 @@ export class SearchEngine {
     const req = body as Record<string, unknown>;
     onlyKeys(req, ['filter', 'sort', 'groupBy', 'page', 'pageSize'], 'request');
     const meta = repo.metadata;
+    await this.loadTypes([req.filter, req.sort, req.groupBy]);
 
     const where = req.filter === undefined ? null : this.group(meta, 'r', this.asGroup(req.filter), false, 0, 1);
     const page = this.int(req.page ?? 1, 1, Number.MAX_SAFE_INTEGER, 'page');
@@ -105,7 +142,7 @@ export class SearchEngine {
     groupBy.forEach((p, i) => { listQb.addSelect(this.scalar(meta, listQb, listJoins, p, 'group'), `g${i}`).addOrderBy(`g${i}`, 'ASC'); });
     sorts.forEach((s, i) => { listQb.addSelect(this.scalar(meta, listQb, listJoins, s.path, 'sort'), `s${i}`).addOrderBy(`s${i}`, s.dir); });
     // sort/group joins are to-one only, so they never multiply rows — plain offset/limit is exact
-    listQb.addOrderBy('r.id', 'ASC').offset(offset).limit(pageSize);
+    listQb.addOrderBy('r.id', 'ASC').offset(offset).limit(pageSize).setParameters(this.params);
 
     let groups: GroupNode[] | undefined;
     let groupsCapped = false;
@@ -117,7 +154,7 @@ export class SearchEngine {
       exprs.slice(1).forEach((e, i) => gqb.addSelect(e, `g${i + 1}`));
       gqb.addSelect('COUNT(DISTINCT r.id)', 'cnt');
       exprs.forEach((_, i) => gqb.addGroupBy(`g${i}`).addOrderBy(`g${i}`, 'ASC'));
-      gqb.limit(LIMITS.groups + 1);
+      gqb.limit(LIMITS.groups + 1).setParameters(this.params);
       const raw: Record<string, unknown>[] = await gqb.getRawMany();
       groupsCapped = raw.length > LIMITS.groups;
       groups = buildTree(raw.slice(0, LIMITS.groups), exprs.length);
@@ -133,6 +170,22 @@ export class SearchEngine {
     if (!isObject(v)) bad('A filter group must be an object with items.');
     onlyKeys(v as Record<string, unknown>, ['op', 'any', 'items'], 'filter group');
     return v as SearchGroup;
+  }
+
+  /** Finds every cf:/cfstatus: path in the request (lenient walk — real validation happens when
+   *  compiling) and loads those types. Unknown ids simply aren't loaded and fail later with a 400. */
+  private async loadTypes(parts: unknown[]) {
+    const ids = new Set<number>();
+    const walk = (v: unknown, depth: number) => {
+      if (depth > 12 || ids.size > 50) return;
+      if (typeof v === 'string') { const m = SPECIAL.exec(v); if (m) ids.add(Number(m[2])); return; }
+      if (Array.isArray(v)) { v.slice(0, 200).forEach((x) => walk(x, depth + 1)); return; }
+      if (isObject(v)) for (const k of ['path', 'items']) walk(v[k], depth + 1);
+    };
+    parts.forEach((p) => walk(p, 0));
+    if (!ids.size) return;
+    const rows = await this.dataSource.getRepository(IntegrationType).find({ where: [...ids].map((id) => ({ id })) });
+    for (const t of rows) this.types.set(t.id, t);
   }
 
   private list(v: unknown, max: number, what: string): unknown[] {
@@ -170,6 +223,11 @@ export class SearchEngine {
     onlyKeys(r, ['path', 'operator', 'value'], 'rule');
     if (++this.rules > LIMITS.rules) bad(`At most ${LIMITS.rules} rules.`);
     if (typeof r.operator !== 'string' || !ALL_OPERATORS.has(r.operator)) bad('Unknown operator.');
+    const special = this.special(r.path);
+    if (special) {
+      if (depth + 1 > LIMITS.depth) bad('Path too deep.');
+      return this.specialPredicate(meta, alias, special, r.operator as string, r.value);
+    }
     const segs = splitPath(r.path);
     if (depth + segs.length > LIMITS.depth) bad('Path too deep.');
     const field = segs.pop() as string;
@@ -246,6 +304,8 @@ export class SearchEngine {
 
   /** A to-one path as a plain column expression, joining each hop once per query. */
   private scalar(meta: EntityMetadata, qb: SelectQueryBuilder<ObjectLiteral>, joins: Map<string, string>, path: unknown, what: 'sort' | 'group'): string {
+    const special = this.special(path);
+    if (special) return this.specialScalar(meta, 'r', special, what);
     const segs = splitPath(path);
     if (segs.length > LIMITS.depth) bad('Path too deep.');
     const field = segs.pop() as string;
@@ -259,6 +319,123 @@ export class SearchEngine {
       alias = next; m = rel.inverseEntityMetadata; nested = true;
     }
     return this.col(alias, this.column(m, field, nested).col.databaseName);
+  }
+
+  // ---- custom fields + computed fields ----
+
+  private special(path: unknown): Special | null {
+    if (typeof path !== 'string') return null;
+    if (path.startsWith('computed:')) {
+      const name = path.slice('computed:'.length);
+      if (!COMPUTED.has(name)) bad('Unknown computed field.');
+      return { kind: 'computed', name };
+    }
+    if (!/^cf(status)?:/.test(path)) return null;
+    const m = SPECIAL.exec(path);
+    if (!m) return bad('Invalid custom field path.');
+    return { kind: m[1] as 'cf' | 'cfstatus', typeId: Number(m[2]), key: m[3] };
+  }
+
+  /** Custom fields hang off environments; also needs read on integrations and integration types. */
+  private specialContext(meta: EntityMetadata, s: Special) {
+    if (meta.target !== Environment) bad('Custom fields can only be used on environments (or inside an "any: environments" group).');
+    if (!canReadEntity(this.ability, Integration) || !canReadEntity(this.ability, IntegrationType)) throw new ForbiddenException();
+    if (s.kind === 'computed') return null;
+    const type = this.types.get(s.typeId);
+    const field = type?.behavior === 'custom_fields' ? type.fields?.find((f) => f?.key === s.key) : undefined;
+    if (!field) return bad('Unknown custom field.');
+    return field;
+  }
+
+  /** FROM/WHERE over the environment's live integrations → their value rows (→ option), optionally for
+   *  one (type, key). Table/column names are constants of this codebase; type id and key are params. */
+  private cfFrom(env: string, s: Special, pred: (c: Cols) => string, head: (c: Cols) => string): string {
+    const [i, v, o] = [this.alias(), this.alias(), this.alias()];
+    const t = (e: unknown) => this.q(this.dataSource.getMetadata(e as never).tableName);
+    const c: Cols = { value: this.col(v, 'value'), sortKey: this.col(v, 'sort_key'), status: this.col(o, 'status') };
+    const scope = s.kind === 'computed' ? '' : ` AND ${this.col(i, 'integration_type_id')} = ${this.param(s.typeId)} AND ${this.col(v, 'field_key')} = ${this.param(s.key)}`;
+    return `(SELECT ${head(c)} FROM ${t(Integration)} ${this.q(i)}`
+      + ` INNER JOIN ${t(IntegrationFieldValue)} ${this.q(v)} ON ${this.col(v, 'integration_id')} = ${this.col(i, 'id')}`
+      + ` LEFT JOIN ${t(IntegrationFieldOption)} ${this.q(o)} ON ${this.col(o, 'id')} = ${this.col(v, 'option_id')}`
+      + ` WHERE ${this.col(i, 'environment_id')} = ${this.col(env, 'id')} AND ${this.col(i, 'deleted_at')} IS NULL${scope}`
+      + ` AND ${pred(c)})`;
+  }
+
+  private cfExists(env: string, s: Special, pred: (c: Cols) => string): string {
+    return 'EXISTS ' + this.cfFrom(env, s, pred, () => '1');
+  }
+
+  private specialPredicate(meta: EntityMetadata, alias: string, s: Special, op: string, value: unknown): string {
+    const field = this.specialContext(meta, s);
+    if (s.kind === 'computed') {
+      if (op !== 'eq') bad(`Operator ${op} can't be used on ${s.name}.`);
+      const on = this.scalarValue('boolean', value, s.name) === 1;
+      const ex = this.cfExists(alias, s, (c) => `${c.status} IN ('outdated', 'eol')`);
+      return on ? ex : `NOT ${ex}`;
+    }
+    if (s.kind === 'cfstatus') bad('Use cf:<type>:<key> with operator status in rules; cfstatus: is for sort and group-by.');
+    const label = field!.label || field!.key;
+    const allowed = field!.kind === 'version' ? CF_VERSION : CF_TEXT;
+    if (!allowed.includes(op)) bad(`Operator ${op} can't be used on ${label}.`);
+    const has = (pred: (c: Cols) => string) => this.cfExists(alias, s, pred);
+    const str = () => this.param(this.scalarValue('string', value, label));
+    const like = (pattern: (x: string) => string) => {
+      if (typeof value !== 'string' || !value || value.length > LIMITS.text) bad(`${label}: expected text.`);
+      return this.param(pattern((value as string).replace(/[\\%_]/g, '\\$&'))); // match % and _ literally
+    };
+    const list = (items: unknown[]) => {
+      const name = `p${++this.seq}`;
+      this.params[name] = items;
+      return `:...${name}`;
+    };
+    const strings = () => {
+      if (!Array.isArray(value) || value.length === 0 || value.length > LIMITS.list) bad(`${label}: expected a list of 1–${LIMITS.list} values.`);
+      return list((value as unknown[]).map((x) => this.scalarValue('string', x, label)));
+    };
+    const ver = () => {
+      const k = versionKey(value);
+      if (!k || String(value).length > 64) bad(`${label}: expected a version like 8.3 or 8.3.35.`);
+      return this.param(k!.key);
+    };
+    const inLine = (c: Cols, k: string) => `(${c.sortKey} = ${k} OR ${c.sortKey} LIKE CONCAT(${k}, '.%'))`;
+    const lt = (c: Cols, k: string) => `${c.sortKey} < ${k}`;
+    const gt = (c: Cols, k: string) => `((${c.sortKey} > ${k} AND ${c.sortKey} NOT LIKE CONCAT(${k}, '.%')) OR ${k} LIKE CONCAT(${c.sortKey}, '.%'))`;
+    switch (op) {
+      case 'isNull': this.noValue(value, op); return `NOT ${has(() => '1 = 1')}`;
+      case 'notNull': this.noValue(value, op); return has(() => '1 = 1');
+      case 'eq': { const p = str(); return has((c) => `${c.value} = ${p}`); }
+      case 'neq': { const p = str(); return `NOT ${has((c) => `${c.value} = ${p}`)}`; }
+      case 'in': { const p = strings(); return has((c) => `${c.value} IN (${p})`); }
+      case 'nin': { const p = strings(); return `NOT ${has((c) => `${c.value} IN (${p})`)}`; }
+      case 'contains': { const p = like((x) => `%${x}%`); return has((c) => `${c.value} LIKE ${p}`); }
+      case 'ncontains': { const p = like((x) => `%${x}%`); return `NOT ${has((c) => `${c.value} LIKE ${p}`)}`; }
+      case 'starts': { const p = like((x) => `${x}%`); return has((c) => `${c.value} LIKE ${p}`); }
+      case 'status': {
+        if (!Array.isArray(value) || !value.length || value.length > 3 || !value.every((x) => (OPTION_STATUSES as readonly unknown[]).includes(x))) {
+          bad(`${label}: status takes a list of ${OPTION_STATUSES.join(', ')}.`);
+        }
+        const p = list([...new Set(value as string[])]);
+        return has((c) => `${c.status} IN (${p})`);
+      }
+      case 'v_eq': { const k = ver(); return has((c) => `${c.sortKey} = ${k}`); }
+      case 'v_line': { const k = ver(); return has((c) => inLine(c, k)); }
+      case 'v_lt': { const k = ver(); return has((c) => lt(c, k)); }
+      case 'v_gt': { const k = ver(); return has((c) => gt(c, k)); }
+      case 'v_lte': { const k = ver(); return has((c) => `(${lt(c, k)} OR ${inLine(c, k)})`); }
+      case 'v_gte': { const k = ver(); return has((c) => `(${gt(c, k)} OR ${inLine(c, k)})`); }
+    }
+    return bad('Unknown operator.');
+  }
+
+  /** One value per environment for sort/group-by: the field's value (version fields sort by key), its
+   *  WORST option status (eol > outdated > current), or the computed flag as 0/1. */
+  private specialScalar(meta: EntityMetadata, alias: string, s: Special, what: 'sort' | 'group'): string {
+    const field = this.specialContext(meta, s);
+    if (s.kind === 'computed') return `(CASE WHEN ${this.cfExists(alias, s, (c) => `${c.status} IN ('outdated', 'eol')`)} THEN 1 ELSE 0 END)`;
+    if (s.kind === 'cfstatus') {
+      return this.cfFrom(alias, s, () => '1 = 1', (c) => `CASE MAX(CASE ${c.status} WHEN 'eol' THEN 3 WHEN 'outdated' THEN 2 WHEN 'current' THEN 1 END) WHEN 3 THEN 'eol' WHEN 2 THEN 'outdated' WHEN 1 THEN 'current' END`);
+    }
+    return this.cfFrom(alias, s, () => '1 = 1', (c) => (what === 'sort' && field!.kind === 'version' ? `MIN(${c.sortKey})` : `MIN(${c.value})`));
   }
 
   // ---- metadata lookups (the only source of identifiers) ----
