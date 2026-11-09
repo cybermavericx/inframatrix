@@ -1,14 +1,20 @@
 import { useState, type ChangeEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, API_ORIGIN } from '../lib/api';
+import { useToast } from './Toast';
+
+function apiErr(e: unknown) {
+  const m = (e as { response?: { data?: { message?: string | string[] } } }).response?.data?.message;
+  return Array.isArray(m) ? m.join(', ') : (m ?? 'Request failed');
+}
 import type { FieldDef } from '../modules/resources';
 import { MultiRefSelect } from './MultiRefSelect';
-import { inferMode, isForbiddenFieldName, type IntegrationTypeField } from '../lib/integrationFlags';
+import { fixedList, inferMode, isForbiddenFieldName, type IntegrationTypeField } from '../lib/integrationFlags';
 
 type V = Record<string, unknown>;
 // Relation objects + server-computed extras echoed onto list rows (publishState, and the projects
 // hosting summary) — stripped from the save payload so TypeORM never sees a non-column property.
-const REL_KEYS = ['project', 'server', 'gitProvider', 'integrationType', 'account', 'environment', 'poc', 'checklistSubmittedBy', 'publishState', 'hosting', 'hostingText', 'developers', 'developerNames'];
+const REL_KEYS = ['project', 'server', 'gitProvider', 'integrationType', 'account', 'environment', 'poc', 'checklistSubmittedBy', 'publishState', 'hosting', 'hostingText', 'developers', 'developerNames', 'fieldStatus'];
 const AUDIT = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'createdBy', 'updatedBy'];
 
 /** strip audit/relation keys, convert datetime-local, '' -> null */
@@ -93,7 +99,7 @@ function LinesTextarea({ value, onChange }: { value: string[] | undefined; onCha
 /** Editor for an Integration Type's custom field definitions (behavior = 'custom_fields'). Each field
  *  has a key/label plus two optional validation lists — possible (suggested/approved) and avoidable
  *  (known-bad) values. Never allows a field meant to hold a password/secret (mirrors the API guard). */
-export function FieldDefsEditor({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+export function FieldDefsEditor({ value, onChange, typeId }: { value: unknown; onChange: (v: unknown) => void; typeId?: number }) {
   const rows = (value as IntegrationTypeField[] | null | undefined) ?? [];
   const update = (i: number, patch: Partial<IntegrationTypeField>) => {
     const next = rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
@@ -108,6 +114,7 @@ export function FieldDefsEditor({ value, onChange }: { value: unknown; onChange:
         const mode = inferMode(r);
         // Switching mode clears the list that's no longer shown, so a hidden stale list can't still flag values.
         const setMode = (m: 'possible' | 'avoidable') => update(i, m === 'possible' ? { mode: m, avoidableValues: [] } : { mode: m, possibleValues: [] });
+        const enforced = fixedList(r).length > 0;
         return (
           <div key={i} className="card" style={{ padding: 10 }}>
             <div className="grid-2">
@@ -119,6 +126,13 @@ export function FieldDefsEditor({ value, onChange }: { value: unknown; onChange:
                 <label>Field label</label>
                 <input className="input" value={r.label} placeholder="CMS Login URL" onChange={(e) => update(i, { label: e.target.value })} />
               </div>
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Kind</label>
+              <select className="input" value={r.kind ?? 'text'} onChange={(e) => update(i, { kind: e.target.value === 'version' ? 'version' : undefined })}>
+                <option value="text">Text</option>
+                <option value="version">Version number (sortable, e.g. 8.3 or 8.3.35)</option>
+              </select>
             </div>
             <div className="field" style={{ marginTop: 8 }}>
               <label>Validation</label>
@@ -135,8 +149,12 @@ export function FieldDefsEditor({ value, onChange }: { value: unknown; onChange:
             </div>
             {mode === 'possible' ? (
               <div className="field" style={{ marginTop: 8 }}>
-                <label>Possible values (one per line — the only values that won't be flagged)</label>
+                <label>Allowed values (one per line — a new or changed value must be one of these)</label>
                 <LinesTextarea value={r.possibleValues} onChange={(arr) => update(i, { possibleValues: arr })} />
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {enforced ? 'Enforced: saving any other value is refused. Existing values are kept as they are.' : 'Empty list: free text, not enforced.'}
+                  {r.kind === 'version' ? ' For versions, enter the detail you track: an exact patch (8.3.35) or a line (8.3 = patch unknown).' : ''}
+                </div>
               </div>
             ) : (
               <div className="field" style={{ marginTop: 8 }}>
@@ -154,6 +172,53 @@ export function FieldDefsEditor({ value, onChange }: { value: unknown; onChange:
         );
       })}
       <button type="button" className="btn btn-ghost btn-sm" onClick={add}>+ Add field</button>
+      {typeId !== undefined && <OptionStatusPanel typeId={typeId} fields={rows} />}
+    </div>
+  );
+}
+
+type OptionRow = { id: number; fieldKey: string; value: string; status: string; usage: number };
+const STATUS_BADGE: Record<string, string> = { current: 'badge badge-green', outdated: 'badge badge-amber', eol: 'badge badge-red' };
+
+/** Status (current / outdated / EOL) and usage of each SAVED fixed-list option. A status change is
+ *  saved at once and changes "outdated technology" results immediately — no site needs editing.
+ *  An option still in use can't be removed from the list (the API answers 409). */
+function OptionStatusPanel({ typeId, fields }: { typeId: number; fields: IntegrationTypeField[] }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const key = ['integration-type-options', typeId];
+  const { data = [] } = useQuery({ queryKey: key, queryFn: async () => (await api.get(`/infra/integration-types/${typeId}/options`)).data as OptionRow[] });
+  const set = useMutation({
+    mutationFn: (o: { id: number; status: string }) => api.patch(`/infra/integration-types/${typeId}/options/${o.id}`, { status: o.status }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['/infra/integrations'] }); toast.notify('Status saved'); },
+    onError: (e) => toast.error(apiErr(e)),
+  });
+  if (!data.length) return null;
+  const labelOf = (k: string) => fields.find((f) => f.key === k)?.label || k;
+  const byField = new Map<string, OptionRow[]>();
+  for (const o of data) byField.set(o.fieldKey, [...(byField.get(o.fieldKey) ?? []), o]);
+  return (
+    <div className="card" style={{ padding: 10 }}>
+      <strong style={{ fontSize: 13 }}>Option status</strong>
+      <div className="muted" style={{ fontSize: 12, margin: '2px 0 6px' }}>Saved options only — save the type to add new ones. Outdated / EOL values make an environment show up under "outdated technology".</div>
+      {[...byField.entries()].map(([fieldKey, opts]) => (
+        <div key={fieldKey} style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{labelOf(fieldKey)}</div>
+          {opts.map((o) => (
+            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, margin: '3px 0' }}>
+              <span style={{ minWidth: 110 }}>{o.value}</span>
+              <span className={STATUS_BADGE[o.status] ?? 'badge badge-gray'}>{o.status}</span>
+              <select className="input" style={{ width: 130 }} value={o.status} disabled={set.isPending}
+                onChange={(e) => set.mutate({ id: o.id, status: e.target.value })} aria-label={`Status of ${o.value}`}>
+                <option value="current">current</option>
+                <option value="outdated">outdated</option>
+                <option value="eol">EOL</option>
+              </select>
+              <span className="muted" style={{ fontSize: 12 }}>{o.usage ? `in use by ${o.usage}` : 'not used'}</span>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

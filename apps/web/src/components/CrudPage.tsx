@@ -500,7 +500,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
                   ) : f.type === 'file' ? (
                     <FileField value={editing[f.name]} onChange={(p) => setField(f, p)} />
                   ) : f.type === 'field-defs' ? (
-                    <FieldDefsEditor value={editing[f.name]} onChange={(v) => setField(f, v)} />
+                    <FieldDefsEditor value={editing[f.name]} onChange={(v) => setField(f, v)} typeId={typeof editing.id === 'number' ? editing.id : undefined} />
                   ) : f.type === 'checkbox' ? (
                     <div style={{ paddingTop: 6 }}>
                       <input type="checkbox" checked={!!editing[f.name]} onChange={(e) => setField(f, e.target.checked)} />
