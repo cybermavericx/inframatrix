@@ -15,6 +15,9 @@ import { useListView, getPath, defaultRowText } from '../hooks/useListView';
 import { useImportExport } from '../hooks/useImportExport';
 import { ExportPicker } from './ExportPicker';
 import { ListToolbar } from './ListToolbar';
+import { GroupedRows } from './GroupedRows';
+import { MassEditModal } from './MassEditModal';
+import { RESERVED_PARAMS } from '../lib/serverFilter';
 import { fmtDate } from '../lib/dates';
 
 type Row = Record<string, unknown>;
@@ -302,6 +305,17 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
     onError: (e) => { qc.invalidateQueries({ queryKey: [config.endpoint] }); setSelected(new Set()); toast.error((e as Error).message); },
   });
 
+  // Mass edit: offered when the API says this list supports it for this user (GET /data/…/fields)
+  const searchResource = config.search === false ? undefined : config.resource;
+  const fieldsMeta = useQuery({
+    queryKey: ['data-fields', config.resource, ''],
+    enabled: !!searchResource && canRead && ability.can('update', config.resource),
+    staleTime: 60_000,
+    queryFn: async () => (await api.get(`/data/${config.resource}/fields`)).data as { massEdit?: boolean },
+  });
+  const canMassEdit = !!fieldsMeta.data?.massEdit && (!config.readOnly || !!config.massEdit);
+  const [massEditing, setMassEditing] = useState(false);
+
   if (!canRead) return <div className="card"><div className="card-body">You do not have access to {config.title}.</div></div>;
 
   const setField = (f: FieldDef, value: unknown) => setEditing((p) => {
@@ -316,7 +330,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
 
   // Optional column filters from the URL (e.g. /infra/servers?provider=Azure) — used by dashboard drill-downs.
   // `view` is reserved (it carries the opened record's id, Odoo-style) and is NOT a column filter.
-  const filterEntries = [...searchParams.entries()].filter(([k]) => k !== 'view');
+  const filterEntries = [...searchParams.entries()].filter(([k]) => !RESERVED_PARAMS.has(k));
   const urlFiltered = filterEntries.length
     ? rows.filter((r) => filterEntries.every(([k, v]) => String(getPath(r, k) ?? '').toLowerCase() === String(v).toLowerCase()))
     : rows;
@@ -336,11 +350,11 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
   const searchText = child
     ? (row: Row) => { let t = defaultRowText(row); for (const c of (childrenByFk.get(row.id) ?? [])) t += ' ' + defaultRowText(c); return t; }
     : undefined;
-  const view = useListView({ rows: urlFiltered, columns: config.columns, fields: config.fields, extraFilterFields: config.filterRelations, searchText });
-  const { sort, onSort, groups, collapsedGroups, toggleGroup } = view;
+  const view = useListView({ rows: urlFiltered, columns: config.columns, fields: config.fields, extraFilterFields: config.filterRelations, searchText, resource: searchResource });
+  const { sort, onSort, groups } = view;
   const filtered = view.rows;
 
-  const selectable = canDelete || !!config.actions?.length;
+  const selectable = canDelete || !!config.actions?.length || canMassEdit;
   const colSpanAll =
     config.columns.length + (selectable ? 1 : 0) + (child ? 1 : 0) + 1; // +1 = always-present actions column
   const allIds = filtered.map((r) => String(r.id));
@@ -597,6 +611,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
           <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
             <strong>{selected.size} selected</strong>
             <button className="btn btn-ghost btn-sm" onClick={() => setExporting(true)}>Export selected</button>
+            {canMassEdit && <button className="btn btn-ghost btn-sm" onClick={() => setMassEditing(true)}>Mass edit</button>}
             {(config.actions ?? []).map((a) => (
               <button key={a.label} className="btn btn-ghost btn-sm" disabled={bulkAction.isPending} onClick={() => bulkAction.mutate({ ids: [...selected], act: a })}>{a.label} selected</button>
             ))}
@@ -604,6 +619,12 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
             <button className="btn btn-ghost btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         </div>
+      )}
+
+      {massEditing && (
+        <MassEditModal resource={config.resource} ids={[...selected].map(Number)} fields={config.fields}
+          invalidate={[[config.endpoint]]} onClose={() => setMassEditing(false)}
+          onDone={() => { setMassEditing(false); setSelected(new Set()); }} />
       )}
 
       <ListToolbar view={view} placeholder={`Search ${config.title.toLowerCase()}… (any field)`} />
@@ -635,18 +656,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
             {!isLoading && filtered.length === 0 && (
               <tr><td colSpan={colSpanAll} className="empty">{filterEntries.length ? 'No records match this filter.' : 'No records yet.'}</td></tr>
             )}
-            {groups
-              ? groups.map(([key, gRows]) => (
-                  <Fragment key={'grp-' + key}>
-                    <tr onClick={() => toggleGroup(key)} style={{ cursor: 'pointer', background: 'var(--bg-2)' }}>
-                      <td colSpan={colSpanAll} style={{ fontWeight: 600, padding: '7px 12px' }}>
-                        {collapsedGroups.has(key) ? '▸' : '▾'} {key} <span className="muted" style={{ fontWeight: 400 }}>({gRows.length})</span>
-                      </td>
-                    </tr>
-                    {!collapsedGroups.has(key) && gRows.map(renderRow)}
-                  </Fragment>
-                ))
-              : filtered.map(renderRow)}
+            {groups ? <GroupedRows view={view} colSpan={colSpanAll} renderRow={renderRow} /> : filtered.map(renderRow)}
           </tbody>
         </table>
       </div>

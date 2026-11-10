@@ -2,6 +2,11 @@ import { useMemo, useState } from 'react';
 import type { FieldDef } from '../modules/resources';
 import { matchesCustom, type CustomFilterDef } from '../components/CustomFilterModal';
 import { fmtDate, isDateField } from '../lib/dates';
+import { useServerView } from './useServerView';
+
+/** One group header in the list: nested levels come from the server Group-by (depth 0..2); `rows`
+ *  is filled on the innermost level only, `count` is how many records the group holds. */
+export type GroupEntry = { key: string; label: string; depth: number; count: number; rows: Row[] };
 
 // ── The reusable list "control panel" (Odoo-style): one hook owns search + a single Filter
 //    (field/operator/value rules over ANY field of the resource's form view PLUS any column shown
@@ -41,9 +46,17 @@ export interface UseListViewOptions {
   extraFilterFields?: FieldDef[];
   /** Override the free-text search haystack for a row (default: deep-walk all values). */
   searchText?: (row: Row) => string;
+  /** Permission resource (e.g. 'infra.servers'): turns on the server Filter / Group-by panel. */
+  resource?: string;
 }
 
-export function useListView({ rows, columns, fields, extraFilterFields, searchText }: UseListViewOptions) {
+export function useListView({ rows: allRows, columns, fields, extraFilterFields, searchText, resource }: UseListViewOptions) {
+  // the server Filter narrows the rows the page already has (by id); everything below works on those
+  const server = useServerView(resource);
+  const rows = useMemo(
+    () => (server.ids ? allRows.filter((r) => server.ids!.has(Number(r.id))) : allRows),
+    [allRows, server.ids],
+  );
   const [search, setSearch] = useState('');
   // click a header to sort: 1st click ascending, 2nd descending.
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null);
@@ -56,7 +69,7 @@ export function useListView({ rows, columns, fields, extraFilterFields, searchTe
   const onSort = (col: string) => setSort((s) => (s?.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
   const setGroupBy = (v: string) => { setGroupByState(v); setCollapsedGroups(new Set()); };
   const toggleGroup = (k: string) => setCollapsedGroups((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const clearAll = () => { setSearch(''); setCustomFilter(null); setGroupBy(''); };
+  const clearAll = () => { setSearch(''); setCustomFilter(null); setGroupBy(''); if (server.state) server.clear(); };
 
   // Filterable fields = the form-view fields PLUS any list column not already covered by a field
   // (e.g. 'poc.name', 'publishState') so anything visible in the list is also filterable.
@@ -101,7 +114,7 @@ export function useListView({ rows, columns, fields, extraFilterFields, searchTe
       if (f.type === 'checkbox') { m.set(f.name, ['Yes', 'No']); continue; }
       if (f.type === 'select' && f.options?.length) { m.set(f.name, f.options); continue; }
       const seen = new Set<string>();
-      for (const r of rows) {
+      for (const r of allRows) {
         const dv = displayValue(r, f.name);
         // array cells (aggregates over child records) contribute each distinct element
         for (const x of Array.isArray(dv) ? dv : [dv]) {
@@ -115,7 +128,7 @@ export function useListView({ rows, columns, fields, extraFilterFields, searchTe
     return m;
     // displayValue is stable enough (depends on filterFields); recompute when fields or data change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterFields, rows]);
+  }, [filterFields, allRows]);
   const valuesFor = (name: string) => valueOptions.get(name) ?? [];
 
   // Apply the Filter (on display values), then free-text search.
@@ -141,20 +154,45 @@ export function useListView({ rows, columns, fields, extraFilterFields, searchTe
     });
   }, [filtered, sort]);
 
-  // group-by: bucket the (filtered+sorted) rows by a chosen field into collapsible groups with counts.
-  const groups = useMemo<[string, Row[]][] | null>(() => {
-    if (!groupBy) return null;
-    const m = new Map<string, Row[]>();
+  // group-by: bucket the (filtered+sorted) rows into collapsible groups with counts — up to 3 nested
+  // levels from the server Group-by (any to-one field, technology fields), else one level by a column.
+  const serverGroupBy = useMemo(() => server.state?.g ?? [], [server.state]);
+  const groupLabel = (v: unknown) => (v == null || v === '' ? '(none)' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : fmtDate(String(v)));
+  const allGroups = useMemo<GroupEntry[] | null>(() => {
+    const levels = serverGroupBy.length && server.keysById ? serverGroupBy.length : groupBy ? 1 : 0;
+    if (!levels) return null;
+    const keyOf = (r: Row): unknown[] => (serverGroupBy.length && server.keysById
+      ? (server.keysById.get(Number(r.id)) ?? serverGroupBy.map(() => null))
+      : [getPath(r, groupBy)]);
+    type Node = { label: string; rows: Row[]; kids: Map<string, Node> };
+    const root: Node = { label: '', rows: [], kids: new Map() };
     for (const r of sorted) {
-      const v = getPath(r, groupBy);
-      const key = v == null || v === '' ? '(none)' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : fmtDate(String(v));
-      const arr = m.get(key);
-      if (arr) arr.push(r); else m.set(key, [r]);
+      let node = root;
+      keyOf(r).slice(0, levels).forEach((v) => {
+        const label = groupLabel(v);
+        let next = node.kids.get(label);
+        if (!next) { next = { label, rows: [], kids: new Map() }; node.kids.set(label, next); }
+        next.rows.push(r);
+        node = next;
+      });
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
-  }, [sorted, groupBy]);
+    const out: GroupEntry[] = [];
+    const walk = (n: Node, depth: number, prefix: string) => {
+      const kids = [...n.kids.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+      for (const k of kids) {
+        const key = prefix ? `${prefix} › ${k.label}` : k.label;
+        const leaf = depth === levels - 1;
+        out.push({ key, label: k.label, depth, count: k.rows.length, rows: leaf ? k.rows : [] });
+        if (!leaf) walk(k, depth + 1, key);
+      }
+    };
+    walk(root, 0, '');
+    return out;
+  }, [sorted, groupBy, server.keysById, serverGroupBy]);
+  // a collapsed group hides its nested groups too
+  const groups = useMemo(() => allGroups?.filter((g) => ![...collapsedGroups].some((c) => g.key !== c && g.key.startsWith(c + ' › '))) ?? null, [allGroups, collapsedGroups]);
 
-  const active = !!(search.trim() || customFilter || groupBy);
+  const active = !!(search.trim() || customFilter || groupBy || server.state);
 
   return {
     // config (consumed by the toolbar / filter modal)
@@ -167,10 +205,12 @@ export function useListView({ rows, columns, fields, extraFilterFields, searchTe
     customFilter, setCustomFilter, showCustom, setShowCustom,
     // group-by
     groupBy, setGroupBy, collapsedGroups, toggleGroup,
+    // the server Filter / Group-by panel (null-safe: server.available is false without a resource)
+    server, resource,
     // results
     rows: sorted,
     groups,
-    total: rows.length,
+    total: allRows.length,
     visibleCount: sorted.length,
     active,
     clearAll,

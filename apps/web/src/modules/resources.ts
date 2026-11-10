@@ -57,6 +57,11 @@ export interface CrudConfig {
   resolvable?: boolean;
   /** Read-only resource: hide New/Edit (e.g. the Reminders log is created from records, not here). */
   readOnly?: boolean;
+  /** false = no server Filter & group panel (a list whose permission resource is another table's,
+   *  e.g. Reminder groups uses 'jobbag.reminders'). */
+  search?: false;
+  /** Offer Mass edit even on a readOnly list (the API still decides what can be mass-edited). */
+  massEdit?: boolean;
   dateRanges?: { from: string; to: string }[]; // validate "to" >= "from"
   /** When a field changes in the editor, compute derived field values from the current draft row
    *  (e.g. Payments: Period to / Due date from Period from + Repeats). Returns a partial patch that
@@ -121,6 +126,31 @@ export const RESOURCES: CrudConfig[] = [
       { name: 'amcFrom', label: 'AMC from', type: 'date' },
       { name: 'amcTo', label: 'AMC to', type: 'date' },
       { name: 'notes', label: 'Notes', type: 'textarea' },
+    ],
+  },
+  {
+    // Every hosting across projects, for Filter & group (e.g. "CI/CD any of auto, manual", "PHP older
+    // than 8.3.36 grouped by server") and Mass edit. Environments are still created/edited inside
+    // their project; here they're listed, filtered and mass-edited.
+    module: 'infra', key: 'environments', title: 'Environments',
+    resource: 'infra.environments', endpoint: '/infra/environments',
+    parentType: 'environment',
+    readOnly: true,
+    massEdit: true,
+    columns: ['project.name', 'type', 'url', 'server.serverName', 'cicdStatus'],
+    badgeColumns: ['type'],
+    fields: [
+      { name: 'projectId', label: 'Project', type: 'ref', refEndpoint: '/infra/projects', refLabel: 'name' },
+      { name: 'type', label: 'Type', type: 'select', options: ['staging', 'uat', 'live'] },
+      { name: 'url', label: 'URL' },
+      { name: 'serverId', label: 'Server', type: 'ref', refEndpoint: '/infra/servers', refLabel: 'serverName' },
+      { name: 'gitProviderId', label: 'Git provider', type: 'ref', refEndpoint: '/infra/git-providers', refLabel: 'name' },
+      { name: 'repoUrl', label: 'Repo URL' },
+      { name: 'repoBranch', label: 'Repo branch' },
+      { name: 'cicdStatus', label: 'CI/CD', type: 'select', options: ['auto', 'manual', 'disabled'] },
+      { name: 'checklistCompleted', label: 'Go-live checklist completed', type: 'checkbox' },
+      { name: 'checklistSubmittedDate', label: 'Checklist submitted date', type: 'date' },
+      { name: 'checklistSubmittedVersion', label: 'Checklist version' },
     ],
   },
   {
@@ -445,6 +475,7 @@ export const RESOURCES: CrudConfig[] = [
     module: 'jobbag', key: 'reminder-groups', title: 'Reminder Groups',
     // Reuses the jobbag.reminders permission (no separate RBAC resource).
     resource: 'jobbag.reminders', endpoint: '/jobbag/reminder-groups',
+    search: false,
     columns: ['name', 'description'],
     fields: [
       { name: 'name', label: 'Group name' },

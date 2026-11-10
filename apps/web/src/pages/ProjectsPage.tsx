@@ -6,6 +6,9 @@ import { useAuth } from '../auth/AuthContext';
 import { RecordForm, cleanPayload } from '../components/RecordForm';
 import { useListView, getPath } from '../hooks/useListView';
 import { ListToolbar } from '../components/ListToolbar';
+import { GroupedRows } from '../components/GroupedRows';
+import { MassEditModal } from '../components/MassEditModal';
+import { RESERVED_PARAMS } from '../lib/serverFilter';
 import { RecordDetail } from '../components/RecordDetail';
 import { ExportPicker } from '../components/ExportPicker';
 import { useToast } from '../components/Toast';
@@ -496,6 +499,7 @@ export default function ProjectsPage() {
     input.value = '';
   };
 
+  const [massEditing, setMassEditing] = useState(false);
   if (!canRead) return <div className="card"><div className="card-body">You do not have access to Projects.</div></div>;
 
   // Same shared list control panel as every other screen — only the columns/fields differ.
@@ -504,7 +508,7 @@ export default function ProjectsPage() {
 
   // Optional column filters from the URL (e.g. /infra/projects?publishState=ready) — used by dashboard
   // drill-downs. Mirrors CrudPage's same mechanism, but array-aware (envTypes etc. are arrays per project).
-  const filterEntries = [...searchParams.entries()].filter(([k]) => k !== 'view');
+  const filterEntries = [...searchParams.entries()].filter(([k]) => !RESERVED_PARAMS.has(k));
   const matchesFilter = (val: unknown, want: string) => Array.isArray(val)
     ? val.some((x) => String(x).toLowerCase() === want.toLowerCase())
     : String(val ?? '').toLowerCase() === want.toLowerCase();
@@ -512,8 +516,8 @@ export default function ProjectsPage() {
     ? listRows.filter((r) => filterEntries.every(([k, v]) => matchesFilter(getPath(r, k), v)))
     : listRows;
 
-  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS });
-  const { sort, onSort, groups, collapsedGroups, toggleGroup } = view;
+  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
+  const { sort, onSort, groups } = view;
   const filtered = view.rows;
 
   const allIds = filtered.map((r) => String(r.id));
@@ -595,6 +599,12 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {massEditing && (
+        <MassEditModal resource="infra.projects" ids={[...selected].map(Number)}
+          fields={projectFields.filter((f) => f.name !== 'developerIds')}
+          invalidate={[['/infra/projects']]} onClose={() => setMassEditing(false)}
+          onDone={() => { setMassEditing(false); setSelected(new Set()); }} />
+      )}
       <ListToolbar view={view} placeholder="Search projects… (name, POC, server, IP, URL)" />
 
       {editing && <ProjectEditor initial={editing} canEdit={canUpdate || canCreate} onClose={() => setEditing(null)} initialTab={editorTab} />}
@@ -626,6 +636,7 @@ export default function ProjectsPage() {
           <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
             <strong>{selected.size} selected</strong>
             <button className="btn btn-ghost btn-sm" onClick={() => setExporting(true)}>Export selected</button>
+            {canUpdate && <button className="btn btn-ghost btn-sm" onClick={() => setMassEditing(true)}>Mass edit</button>}
             {canUpdate && <button className="btn btn-ghost btn-sm" disabled={bulk.isPending} onClick={() => bulk.mutate({ ids: [...selected], kind: 'publish' })}>Publish selected</button>}
             {canUpdate && <button className="btn btn-ghost btn-sm" disabled={bulk.isPending} onClick={() => bulk.mutate({ ids: [...selected], kind: 'revert' })}>Revert to Draft</button>}
             {canDelete && <button className="btn btn-danger btn-sm" disabled={bulk.isPending} onClick={() => { if (confirm(`Delete ${selected.size} project(s)?`)) bulk.mutate({ ids: [...selected], kind: 'delete' }); }}>Delete selected</button>}
@@ -650,18 +661,7 @@ export default function ProjectsPage() {
           <tbody>
             {rows.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects yet.</td></tr>}
             {rows.length > 0 && filtered.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects match this filter.</td></tr>}
-            {groups
-              ? groups.map(([key, gRows]) => (
-                  <Fragment key={'grp-' + key}>
-                    <tr onClick={() => toggleGroup(key)} style={{ cursor: 'pointer', background: 'var(--bg-2)' }}>
-                      <td colSpan={PROJECT_COLSPAN} style={{ fontWeight: 600, padding: '7px 12px' }}>
-                        {collapsedGroups.has(key) ? '▸' : '▾'} {key} <span className="muted" style={{ fontWeight: 400 }}>({gRows.length})</span>
-                      </td>
-                    </tr>
-                    {!collapsedGroups.has(key) && gRows.map(renderProjectRow)}
-                  </Fragment>
-                ))
-              : filtered.map(renderProjectRow)}
+            {groups ? <GroupedRows view={view} colSpan={PROJECT_COLSPAN} renderRow={renderProjectRow} /> : filtered.map(renderProjectRow)}
           </tbody>
         </table>
       </div>
