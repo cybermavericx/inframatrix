@@ -244,11 +244,6 @@ export const RESOURCES: CrudConfig[] = [
     parentType: 'client',
     columns: ['name', 'email', 'phone', 'status'],
     relatedLinks: [{ label: 'Billings', to: (r) => `/jobbag/payments?clientId=${r.id}` }],
-    // Drill into the services billed to this client / its payments (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'serviceNames', label: 'Name', group: 'Services' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-    ],
     // In the detail view: the services billed to this client (from payments) with each period's
     // payment status — click a row to open the underlying vendor-service. Plus reminders & notes.
     relatedPanels: [
@@ -278,14 +273,6 @@ export const RESOURCES: CrudConfig[] = [
     parentType: 'vendor',
     columns: ['vendorName', 'pocName', 'pocEmail', 'status'],
     relatedLinks: [{ label: 'Payments', to: (r) => `/jobbag/payments?vendorId=${r.id}` }],
-    // Drill into the vendor's services / payments (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'serviceNames', label: 'Name', group: 'Services' },
-      { name: 'serviceStatuses', label: 'Status', group: 'Services' },
-      { name: 'serviceExpiries', label: 'Expiry date', type: 'date', group: 'Services' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-      { name: 'paymentDirections', label: 'Direction', group: 'Payments' },
-    ],
     childList: {
       endpoint: '/jobbag/vendor-services', foreignKey: 'vendorId', label: 'serviceName',
       meta: ['status', 'expiryDate', 'cost'], linkPath: '/jobbag/vendor-services', title: 'Services',
@@ -315,15 +302,6 @@ export const RESOURCES: CrudConfig[] = [
     badgeColumns: ['status', 'isRenewable'],
     relatedLinks: [{ label: 'Payments', to: (r) => `/jobbag/payments?vendorServiceId=${r.id}` }],
     dateRanges: [{ from: 'startDate', to: 'expiryDate' }],
-    // Vendor (direct) + the service's payments / billed clients (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'vendor.status', label: 'Status', group: 'Vendor' },
-      { name: 'vendor.pocName', label: 'POC', group: 'Vendor' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-      { name: 'paymentDirections', label: 'Direction', group: 'Payments' },
-      { name: 'clientNames', label: 'Name', group: 'Clients' },
-    ],
     // Purchase + billing history for this service (outgoing = what we pay the vendor, incoming = what
     // we bill a client), each clickable; plus the reminders & notes attached to the service.
     relatedPanels: [
@@ -363,16 +341,6 @@ export const RESOURCES: CrudConfig[] = [
     columns: ['direction', 'vendor.vendorName', 'client.name', 'amount', 'dueDate', 'frequency', 'status'],
     badgeColumns: ['direction', 'status', 'frequency'],
     dateRanges: [{ from: 'periodFrom', to: 'periodTo' }],
-    // Cross-entity filters: a payment links a Vendor, a Service and a Client — drill into each.
-    filterRelations: [
-      { name: 'vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'vendor.status', label: 'Status', group: 'Vendor' },
-      { name: 'vendorService.serviceName', label: 'Name', group: 'Service' },
-      { name: 'vendorService.expiryDate', label: 'Expiry date', type: 'date', group: 'Service' },
-      { name: 'vendorService.status', label: 'Status', group: 'Service' },
-      { name: 'client.name', label: 'Name', group: 'Client' },
-      { name: 'client.status', label: 'Status', group: 'Client' },
-    ],
     relatedPanels: [
       { title: 'Reminders', kind: 'reminders' },
       { title: 'Activity', kind: 'activity' }, // change-log + notes in one Odoo-style timeline
@@ -424,11 +392,6 @@ export const RESOURCES: CrudConfig[] = [
     resource: 'jobbag.jobs', endpoint: '/jobbag/jobs',
     parentType: 'job',
     columns: ['uniqueId', 'title', 'vendorService.vendor.vendorName', 'client.name', 'projectStatus'],
-    filterRelations: [
-      { name: 'vendorService.serviceName', label: 'Name', group: 'Service' },
-      { name: 'vendorService.vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'client.name', label: 'Name', group: 'Client' },
-    ],
     // A job is a task you track + get reminded about. Link a vendor-service (its vendor shows
     // automatically) and a client, write the action, then add reminders/notes from the detail view.
     relatedPanels: [

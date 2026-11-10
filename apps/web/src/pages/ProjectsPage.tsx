@@ -52,18 +52,14 @@ type HostingItem = { envId: number; type: string; url: string | null; server: st
 // you can ask "projects whose environment URL contains example.com", "projects having SendGrid",
 // or "projects with Technology = php 8.3" from the Projects list itself.
 const PROJECT_FILTER_EXTRAS: FieldDef[] = [
-  // grouped under drill-in "relations" in the Odoo-style filter picker (Environments ▸ / Integrations ▸)
-  { name: 'envUrls', label: 'URL', group: 'Environments' },
-  { name: 'envTypes', label: 'Type', group: 'Environments' },
-  { name: 'envServers', label: 'Server', group: 'Environments' },
+  // Integration values are computed in the page and have no server path yet, so they stay in the Quick
+  // filter. Environment URL / type / server and developers are in Filter & group (Environments, Developers).
   { name: 'integrationTypes', label: 'Type', group: 'Integrations' },
   { name: 'integrationKeys', label: 'Key', group: 'Integrations' },
   { name: 'integrationValues', label: 'Value', group: 'Integrations' },
   // Combined "<type> <key> <value>" per integration — use one "contains" rule for a precise
   // same-integration match (e.g. all PHP 8.x hostings → contains "php 8").
   { name: 'integrationDetails', label: 'Type · key · value', group: 'Integrations' },
-  // array of the project's developer names → "projects where a developer is X"
-  { name: 'developerNames', label: 'Developers' },
 ];
 const PROJECT_COLSPAN = 8; // checkbox + 4 cols + Developers + Hosting + actions
 const envFields: FieldDef[] = [
