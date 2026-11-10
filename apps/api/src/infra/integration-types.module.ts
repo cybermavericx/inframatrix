@@ -21,7 +21,7 @@ const RES = 'infra.integration-types';
 const KINDS = new Set(['text', 'version']);
 
 @Injectable()
-class IntegrationTypesService extends CrudService<IntegrationType> {
+export class IntegrationTypesService extends CrudService<IntegrationType> {
   constructor(
     @InjectRepository(IntegrationType) repo: Repository<IntegrationType>,
     @InjectRepository(Integration) private readonly intRepo: Repository<Integration>,

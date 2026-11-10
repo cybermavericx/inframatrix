@@ -15,7 +15,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 const RES = 'jobbag.vendor-services';
 
 @Injectable()
-class VendorServicesService extends CrudService<VendorService> {
+export class VendorServicesService extends CrudService<VendorService> {
   constructor(
     @InjectRepository(VendorService) repo: Repository<VendorService>,
     @InjectRepository(Payment) private readonly payRepo: Repository<Payment>,

@@ -18,7 +18,7 @@ const RES = 'infra.integrations';
 const RELATIONS = ['environment', 'integrationType', 'account'];
 
 @Injectable()
-class IntegrationsService extends CrudService<Integration> {
+export class IntegrationsService extends CrudService<Integration> {
   constructor(@InjectRepository(Integration) repo: Repository<Integration>) {
     super(repo, RELATIONS, [], 'integration');
   }

@@ -19,7 +19,7 @@ export type SearchRule = { path: string; operator: string; value?: unknown };
  *  as one EXISTS per group, not one per rule. Rule paths inside are relative to that record. */
 export type SearchGroup = { op?: 'and' | 'or'; any?: string; items: (SearchRule | SearchGroup)[] };
 
-type Kind = 'string' | 'number' | 'date' | 'boolean';
+export type Kind = 'string' | 'number' | 'date' | 'boolean';
 type Inner = (meta: EntityMetadata, alias: string, nested: boolean, depth: number) => string;
 
 const RANGE = ['eq', 'neq', 'in', 'nin', 'gt', 'gte', 'lt', 'lte', 'between', 'isNull', 'notNull'];
@@ -55,14 +55,14 @@ const OPERATORS: Record<Kind, string[]> = {
 const CF_TEXT = ['eq', 'neq', 'in', 'nin', 'contains', 'ncontains', 'starts', 'isNull', 'notNull', 'status'];
 const CF_VERSION = [...CF_TEXT, 'v_eq', 'v_line', 'v_lt', 'v_lte', 'v_gt', 'v_gte'];
 const COMPUTED = new Set(['hasOutdatedTechnology']);
-const SPECIAL = /^(cf|cfstatus):(\d{1,9}):([\s\S]{1,190})$/;
+export const SPECIAL = /^(cf|cfstatus):(\d{1,9}):([\s\S]{1,190})$/;
 type Special = { kind: 'computed'; name: string } | { kind: 'cf' | 'cfstatus'; typeId: number; key: string };
 type Cols = { value: string; sortKey: string; status: string };
 const ALL_OPERATORS = new Set([...Object.values(OPERATORS).flat(), ...CF_VERSION]);
 
 // Hard stops against an abusive request, not UI limits. `depth` counts relation hops + the final field,
 // the same as the export field tree (MAX_FIELD_DEPTH), across nested `any` groups too.
-const LIMITS = { depth: 4, nesting: 5, rules: 40, list: 200, text: 500, pageSize: 200, offset: 10_000, groups: 1_000, sorts: 3, groupBy: 3 };
+const LIMITS = { depth: 4, nesting: 5, rules: 40, list: 200, text: 500, pageSize: 200, offset: 10_000, groups: 1_000, sorts: 3, groupBy: 3, ids: 10_000 };
 const SEGMENT = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 // a related User is a leaf that exposes only these — the same rule as the export field tree
@@ -74,7 +74,7 @@ const onlyKeys = (o: Record<string, unknown>, keys: string[], what: string) => {
   for (const k of Object.keys(o)) if (!keys.includes(k)) bad(`Unknown ${what} property: ${k.slice(0, 40)}`);
 };
 
-function kindOf(col: ColumnMetadata): Kind | null {
+export function kindOf(col: ColumnMetadata): Kind | null {
   const t = col.type;
   if (t === Boolean || t === 'boolean' || t === 'bool') return 'boolean';
   if (t === Number || ['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'decimal', 'numeric', 'float', 'double', 'real'].includes(t as string)) return 'number';
@@ -112,7 +112,8 @@ export class SearchEngine {
   async run(repo: Repository<ObjectLiteral>, body: unknown) {
     if (!isObject(body)) bad('Expected a JSON object.');
     const req = body as Record<string, unknown>;
-    onlyKeys(req, ['filter', 'sort', 'groupBy', 'page', 'pageSize'], 'request');
+    onlyKeys(req, ['filter', 'sort', 'groupBy', 'page', 'pageSize', 'output'], 'request');
+    if (req.output !== undefined && req.output !== 'ids') bad('output must be "ids".');
     const meta = repo.metadata;
     await this.loadTypes([req.filter, req.sort, req.groupBy]);
 
@@ -135,6 +136,26 @@ export class SearchEngine {
       if (where) qb.where(`(${where})`, this.params);
       return qb;
     };
+
+    // output "ids" (the list pages): every matching id (capped) with its group-key values, no paging —
+    // the page keeps its own rows and only narrows / buckets them, so its columns and actions stay as
+    // they are. Group joins are to-one only, so the rows are never multiplied.
+    if (req.output === 'ids') {
+      const iqb = base();
+      const ijoins = new Map<string, string>();
+      iqb.select('r.id', 'id');
+      groupBy.forEach((p, i) => { iqb.addSelect(this.scalar(meta, iqb, ijoins, p, 'group'), `g${i}`); });
+      iqb.addOrderBy('r.id', 'ASC').limit(LIMITS.ids + 1).setParameters(this.params);
+      const raw: Record<string, unknown>[] = await iqb.getRawMany();
+      const capped = raw.length > LIMITS.ids;
+      const list = raw.slice(0, LIMITS.ids);
+      return {
+        total: capped ? await base().getCount() : list.length,
+        ids: list.map((x) => Number(x.id)),
+        ...(groupBy.length ? { keys: list.map((x) => groupBy.map((_, i) => x[`g${i}`] ?? null)) } : {}),
+        capped,
+      };
+    }
 
     // Rows: group keys first so a page reads in group order, then the requested sort, then id (stable).
     const listQb = base();

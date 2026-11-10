@@ -13,7 +13,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 const RES = 'infra.accounts';
 
 @Injectable()
-class AccountsService extends CrudService<Account> {
+export class AccountsService extends CrudService<Account> {
   constructor(@InjectRepository(Account) repo: Repository<Account>) { super(repo, ['integrationType'], [], 'account'); }
 }
 

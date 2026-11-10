@@ -13,7 +13,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 
 @Injectable()
-class ClientsService extends CrudService<Client> {
+export class ClientsService extends CrudService<Client> {
   constructor(
     @InjectRepository(Client) repo: Repository<Client>,
     @InjectRepository(Payment) private readonly payRepo: Repository<Payment>,
