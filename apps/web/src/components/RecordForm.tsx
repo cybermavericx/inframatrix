@@ -10,6 +10,7 @@ function apiErr(e: unknown) {
 import type { FieldDef } from '../modules/resources';
 import { MultiRefSelect } from './MultiRefSelect';
 import { fixedList, inferMode, isForbiddenFieldName, type IntegrationTypeField } from '../lib/integrationFlags';
+import { optionLabel } from '../lib/labels';
 
 type V = Record<string, unknown>;
 // Relation objects + server-computed extras echoed onto list rows (publishState, and the projects
@@ -210,8 +211,8 @@ function OptionStatusPanel({ typeId, fields }: { typeId: number; fields: Integra
               <span className={STATUS_BADGE[o.status] ?? 'badge badge-gray'}>{o.status}</span>
               <select className="input" style={{ width: 130 }} value={o.status} disabled={set.isPending}
                 onChange={(e) => set.mutate({ id: o.id, status: e.target.value })} aria-label={`Status of ${o.value}`}>
-                <option value="current">current</option>
-                <option value="outdated">outdated</option>
+                <option value="current">Current</option>
+                <option value="outdated">Outdated</option>
                 <option value="eol">EOL</option>
               </select>
               <span className="muted" style={{ fontSize: 12 }}>{o.usage ? `in use by ${o.usage}` : 'not used'}</span>
@@ -229,7 +230,7 @@ export function FieldInput({ field: f, value, onChange }: { field: FieldDef; val
   if (f.type === 'select') return (
     <select className="input" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)}>
       <option value="">—</option>
-      {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+      {f.options?.map((o) => <option key={o} value={o}>{optionLabel(o)}</option>)}
     </select>
   );
   if (f.type === 'ref') return <RefSelect field={f} value={value} onChange={onChange} />;

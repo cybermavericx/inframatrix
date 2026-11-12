@@ -39,13 +39,17 @@ a { color: inherit; text-decoration: none; }
 h1 { font-size: 23px; font-weight: 800; letter-spacing: -.02em; }
 h2 { font-size: 17px; font-weight: 700; }
 h3 { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
+/* Keyboard focus is always visible (WCAG 2.4.7); mouse clicks don't show it (:focus-visible). */
+:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+.kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin-right: 4px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--bg-2); font: 600 12px/1.6 var(--font-mono, monospace); text-align: center; color: var(--text); }
+.input:focus-visible { outline: none; } /* inputs already show their own focus ring */
 ::selection { background: rgba(109, 92, 255, .4); }
 
 /* ---------- top bar ---------- */
 .topbar {
   height: var(--topbar-h);
-  background: rgba(18, 26, 49, .8);
-  backdrop-filter: blur(12px);
+  /* solid (no backdrop blur): a blurred sticky bar is re-rendered on every scroll frame */
+  background: rgba(18, 26, 49, .97);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 6px;
   padding: 0 18px; position: sticky; top: 0; z-index: 20;
@@ -84,8 +88,7 @@ h3 { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
 .appfoot {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
-  background: rgba(14, 20, 40, .6);
-  backdrop-filter: blur(12px);
+  background: rgba(14, 20, 40, .97);
   padding: 13px 18px;
   text-align: center;
   font-size: 12.5px;
@@ -102,10 +105,8 @@ h3 { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
   background-size: 220% auto;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 6px rgba(0, 212, 255, .5)) drop-shadow(0 0 12px rgba(255, 92, 240, .38));
-  animation: footNeon 5s linear infinite;
 }
-@keyframes footNeon { to { background-position: 220% center; } }
-@media (prefers-reduced-motion: reduce) { .foot-brand, .foot-org { animation: none; } }
+/* No looping animation: the gradient + glow are painted once instead of on every frame. */
 a.foot-org, .foot-link { text-decoration: none; }
 .foot-link { color: var(--muted); }
 .foot-link:hover { color: var(--text); text-decoration: underline; }
@@ -136,7 +137,7 @@ a.foot-org, .foot-link { text-decoration: none; }
   width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   font: inherit; color: var(--text); background: var(--bg-2); transition: border-color .15s, box-shadow .15s;
 }
-.input::placeholder { color: #5d6f96; }
+.input::placeholder { color: #7d8db4; } /* ≥ 4.5:1 on the input background */
 .input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(109, 92, 255, .25), var(--glow-cyan); }
 select.input option { background: var(--surface); }
 textarea.input { resize: vertical; min-height: 64px; }

@@ -22,17 +22,20 @@ export function ListToolbar({ view, placeholder, extra }: { view: ListView; plac
           className="input"
           style={{ maxWidth: 340 }}
           placeholder={placeholder}
+          data-shortcut="/"
+          title="Search (/)"
           value={view.search}
           onChange={(e) => view.setSearch(e.target.value)}
         />
         {sv.available && (
-          <button className={'btn btn-sm ' + (sv.state ? 'btn-primary' : 'btn-ghost')} onClick={() => setPanel(true)}
-            title="Filter and group on any field, including related records and technology versions">
+          <button className={'btn btn-sm ' + (sv.state ? 'btn-primary' : 'btn-ghost')} onClick={() => setPanel(true)} data-shortcut="f"
+            title="Filter and group on any field, including related records and technology versions (F)">
             Filter &amp; group{sRules || sGroups ? ` (${[sRules && `${sRules} rule${sRules > 1 ? 's' : ''}`, sGroups && `${sGroups} group${sGroups > 1 ? 's' : ''}`].filter(Boolean).join(', ')})` : ''}
           </button>
         )}
         {view.filterFields.length > 0 && (
           <button className={'btn btn-sm ' + (view.customFilter ? 'btn-primary' : 'btn-ghost')} onClick={() => view.setShowCustom(true)}
+            data-shortcut={sv.available ? undefined : 'f'}
             title="Filter the rows on this page by what they show (incl. computed columns)">
             {sv.available ? 'Quick filter' : 'Filter'}{view.customFilter ? ` (${view.customFilter.rules.length})` : ''}
           </button>

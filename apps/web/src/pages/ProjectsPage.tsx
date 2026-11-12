@@ -15,6 +15,7 @@ import { useToast } from '../components/Toast';
 import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
 import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
+import { optionLabel } from '../lib/labels';
 
 type Row = Record<string, unknown>;
 
@@ -532,17 +533,17 @@ export default function ProjectsPage() {
     <tr key={String(p.id)} onClick={() => openProject({ ...p })} style={{ cursor: 'pointer' }}>
       <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(p.id))} onChange={() => toggleOne(String(p.id))} /></td>
       <td>{String(p.name ?? '')}</td>
-      <td>{String(p.status ?? '')}</td>
+      <td>{optionLabel(p.status)}</td>
       <td>{String((p.poc as Row)?.name ?? '—')}</td>
       <td><span style={{ fontSize: 12.5 }}>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</span></td>
-      <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{String(p.publishState ?? 'draft')}</span></td>
+      <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{optionLabel(p.publishState ?? 'draft')}</span></td>
       <td onClick={(e) => e.stopPropagation()}>
         {hosting.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>—</span> : (
           <div title="Click to open the Environments tab" onClick={() => openProject({ ...p }, 'environments')}
             style={{ display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
             {hosting.map((h) => (
               <div key={h.envId} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-                <span className="badge badge-blue" style={{ marginRight: 6 }}>{h.type}</span>
+                <span className="badge badge-blue" style={{ marginRight: 6 }}>{optionLabel(h.type)}</span>
                 {h.server ? <strong>{h.server}</strong> : <span className="muted">no server</span>}
                 {h.serverIp ? <span style={{ marginLeft: 6, fontFamily: 'monospace', color: 'var(--primary-2)' }}>{h.serverIp}</span> : null}
                 {h.url ? (
@@ -574,7 +575,7 @@ export default function ProjectsPage() {
           <button className="btn btn-ghost" onClick={() => setExporting(true)}>Export</button>
           {canCreate && <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>Import</button>}
           <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={importBundle} />
-          {canCreate && <button className="btn btn-primary" onClick={() => openProject({ status: 'active' })}>+ New project</button>}
+          {canCreate && <button className="btn btn-primary" data-shortcut="n" title="New project (N)" onClick={() => openProject({ status: 'active' })}>+ New project</button>}
         </div>
       </div>
 
