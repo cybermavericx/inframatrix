@@ -62,7 +62,7 @@ const ALL_OPERATORS = new Set([...Object.values(OPERATORS).flat(), ...CF_VERSION
 
 // Hard stops against an abusive request, not UI limits. `depth` counts relation hops + the final field,
 // the same as the export field tree (MAX_FIELD_DEPTH), across nested `any` groups too.
-const LIMITS = { depth: 4, nesting: 5, rules: 40, list: 200, text: 500, pageSize: 200, offset: 10_000, groups: 1_000, sorts: 3, groupBy: 3, ids: 10_000 };
+const LIMITS = { depth: 4, nesting: 5, rules: 40, list: 200, text: 500, pageSize: 200, offset: 10_000, groups: 1_000, sorts: 3, groupBy: 3, ids: 10_000, suggestQ: 100, suggestScan: 200, suggestions: 20 };
 const SEGMENT = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 // a related User is a leaf that exposes only these — the same rule as the export field tree
@@ -191,6 +191,65 @@ export class SearchEngine {
     if (!isObject(v)) bad('A filter group must be an object with items.');
     onlyKeys(v as Record<string, unknown>, ['op', 'any', 'items'], 'filter group');
     return v as SearchGroup;
+  }
+
+  /**
+   * Existing values of one text field path, for the Filter & group value box: distinct, containing
+   * `q` (case-insensitive by the column's collation), values starting with it first, at most 20.
+   * Same path rules as a filter rule: each relation hop needs read on its target (403), hidden and
+   * JSON columns are refused, and cf:<type>:<key> needs read on integrations + integration types.
+   * Values come from the field's own table, so suggestions never reveal more than filtering would.
+   */
+  async values(repo: Repository<ObjectLiteral>, rawPath: unknown, rawQ: unknown): Promise<{ values: string[] }> {
+    if (typeof rawPath !== 'string' || !rawPath || rawPath.length > 200) bad('Invalid path.');
+    if (rawQ !== undefined && rawQ !== null && typeof rawQ !== 'string') bad('q must be text.'); // e.g. ?q=a&q=b
+    const q = typeof rawQ === 'string' ? rawQ : '';
+    if (q.length > LIMITS.suggestQ) bad(`q: at most ${LIMITS.suggestQ} characters.`);
+    const path = rawPath as string;
+    // a cf: segment may itself contain dots (its key), so split it off before splitting relations
+    const at = path.search(/(^|\.)cf:/);
+    const relPart = at < 0 ? path : path.slice(0, at);
+    const cfPart = at < 0 ? null : path.slice(at === 0 ? 0 : at + 1);
+    const segs = relPart ? splitPath(relPart) : [];
+    const field = cfPart ? null : (segs.pop() as string);
+    if (segs.length + 1 > LIMITS.depth) bad('Path too deep.');
+    let meta = repo.metadata;
+    let nested = false;
+    for (const seg of segs) {
+      meta = this.relation(meta, seg, nested).inverseEntityMetadata;
+      nested = true;
+    }
+    const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`; // match % and _ literally
+    let rows: { v: string | number | null }[]; // DISTINCT of a text column / the values table's text
+    if (cfPart) {
+      await this.loadTypes([cfPart]);
+      const sp = this.special(cfPart);
+      if (!sp || sp.kind !== 'cf') return { values: [] };
+      this.specialContext(meta, sp); // environments only; read on integrations + types; known field
+      const t = (e: unknown) => this.q(this.dataSource.getMetadata(e as never).tableName);
+      const val = this.col('v', 'value');
+      rows = await this.dataSource.query(
+        `SELECT DISTINCT ${val} AS v FROM ${t(Integration)} ${this.q('i')}`
+        + ` INNER JOIN ${t(IntegrationFieldValue)} ${this.q('v')} ON ${this.col('v', 'integration_id')} = ${this.col('i', 'id')}`
+        + ` WHERE ${this.col('i', 'integration_type_id')} = ? AND ${this.col('v', 'field_key')} = ? AND ${this.col('i', 'deleted_at')} IS NULL`
+        + ` AND ${val} <> '' AND ${val} LIKE ? ORDER BY v LIMIT ${LIMITS.suggestScan}`,
+        [sp.typeId, sp.key, like],
+      );
+    } else {
+      const { col, kind } = this.column(meta, field as string, nested);
+      if (kind !== 'string') return { values: [] };
+      const x = this.col('t', col.databaseName);
+      const live = meta.deleteDateColumn ? ` AND ${this.col('t', meta.deleteDateColumn.databaseName)} IS NULL` : '';
+      rows = await this.dataSource.query(
+        `SELECT DISTINCT ${x} AS v FROM ${this.q(meta.tableName)} ${this.q('t')}`
+        + ` WHERE ${x} IS NOT NULL AND ${x} <> '' AND ${x} LIKE ?${live} ORDER BY v LIMIT ${LIMITS.suggestScan}`,
+        [like],
+      );
+    }
+    const lower = q.toLowerCase();
+    const starts = (v: string) => (v.toLowerCase().startsWith(lower) ? 0 : 1);
+    const values = rows.map((r) => String(r.v)).sort((a, b) => starts(a) - starts(b));
+    return { values: values.slice(0, LIMITS.suggestions) };
   }
 
   /** Finds every cf:/cfstatus: path in the request (lenient walk — real validation happens when
