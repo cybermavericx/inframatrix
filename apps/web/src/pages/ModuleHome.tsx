@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { resourcesForModule } from '../modules/resources';
+import { navResourcesForModule } from '../modules/resources';
 
 const LABELS: Record<string, string> = { infra: 'Infra', jobbag: 'JobBag' };
 
 export default function ModuleHome({ moduleKey }: { moduleKey: string }) {
   const { ability } = useAuth();
-  const resources = resourcesForModule(moduleKey).filter((r) => ability.can('read', r.resource));
+  const resources = navResourcesForModule(moduleKey).filter((r) => ability.can('read', r.resource));
 
   return (
     <div>

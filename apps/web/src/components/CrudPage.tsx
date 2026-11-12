@@ -11,13 +11,13 @@ import { ReminderModal } from './ReminderModal';
 import { RecordDetail } from './RecordDetail';
 import { ResolveModal } from './ResolveModal';
 import { useToast } from './Toast';
-import { useListView, getPath, defaultRowText } from '../hooks/useListView';
+import { useListView, getPath, defaultRowText, shortLabel } from '../hooks/useListView';
 import { useImportExport } from '../hooks/useImportExport';
 import { ExportPicker } from './ExportPicker';
 import { ListToolbar } from './ListToolbar';
 import { GroupedRows } from './GroupedRows';
 import { MassEditModal } from './MassEditModal';
-import { RESERVED_PARAMS } from '../lib/serverFilter';
+import { BY_PARAM, RESERVED_PARAMS } from '../lib/serverFilter';
 import { fmtDate } from '../lib/dates';
 
 type Row = Record<string, unknown>;
@@ -479,7 +479,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
             return <span key={k} className="badge badge-blue">{(meta?.title ?? k.replace(/\./g, ' '))}: {name != null ? String(name) : v}</span>;
           })}
           <span className="muted" style={{ fontSize: 12.5 }}>· {filtered.length} of {rows.length}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => setSearchParams({})}>Clear filter</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSearchParams((p) => { const n = new URLSearchParams(); const by = p.get(BY_PARAM); if (by) n.set(BY_PARAM, by); return n; })}>Clear filter</button>
         </div>
       )}
 
@@ -637,7 +637,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
               {child && <th style={{ width: 32 }}></th>}
               {config.columns.map((c) => (
                 <th key={c} onClick={() => onSort(c)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} title="Click to sort">
-                  {c.replace(/\./g, ' ')}{sort?.col === c ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                  {shortLabel(view.filterFields.find((f) => f.name === c)?.label ?? c)}{sort?.col === c ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
                 </th>
               ))}
               <th className="row-actions"></th>

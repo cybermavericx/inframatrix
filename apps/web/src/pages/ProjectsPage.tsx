@@ -8,7 +8,9 @@ import { useListView, getPath } from '../hooks/useListView';
 import { ListToolbar } from '../components/ListToolbar';
 import { GroupedRows } from '../components/GroupedRows';
 import { MassEditModal } from '../components/MassEditModal';
-import { RESERVED_PARAMS } from '../lib/serverFilter';
+import { BY_PARAM, RESERVED_PARAMS } from '../lib/serverFilter';
+import CrudPage from '../components/CrudPage';
+import { ENVIRONMENTS_CONFIG } from '../modules/resources';
 import { RecordDetail } from '../components/RecordDetail';
 import { ExportPicker } from '../components/ExportPicker';
 import { useToast } from '../components/Toast';
@@ -44,6 +46,7 @@ const PROJECT_COLS = [
   { key: 'poc.name', label: 'POC' },
   { key: 'publishState', label: 'State' },
 ] as const;
+const PROJECT_COL_LABELS: Record<string, string> = Object.fromEntries(PROJECT_COLS.map((c) => [c.key, c.label]));
 // Per-environment hosting summary the list API now attaches to each project (server name + IP),
 // so "where / how is this hosted" is answerable from the list without drilling into each server.
 type HostingItem = { envId: number; type: string; url: string | null; server: string | null; serverIp: string | null; provider: string | null };
@@ -416,8 +419,31 @@ function ProjectEditor({ initial, canEdit, onClose, initialTab = 'overview' }: {
   );
 }
 
-/* ---------------- Page (list) ---------------- */
+/* ---------------- Page: By project | By hosting ---------------- */
+// One menu entry, two views of the same hostings: one row per project (default) or one row per
+// environment (?by=hosting — the Environments list: filter, group by server, mass edit). Switching
+// view clears the filter, since the two lists have different fields.
 export default function ProjectsPage() {
+  const { ability } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canHosting = ability.can('read', 'infra.environments');
+  const byHosting = searchParams.get(BY_PARAM) === 'hosting';
+  const show = (hosting: boolean) => setSearchParams(hosting ? { [BY_PARAM]: 'hosting' } : {});
+  return (
+    <div>
+      {(canHosting || byHosting) && (
+        <div className="tabs" style={{ marginBottom: 12 }} role="tablist" aria-label="Projects view">
+          <button type="button" role="tab" aria-selected={!byHosting} className={'tab' + (!byHosting ? ' active' : '')} onClick={() => show(false)}>By project</button>
+          <button type="button" role="tab" aria-selected={byHosting} className={'tab' + (byHosting ? ' active' : '')} onClick={() => show(true)}>By hosting</button>
+        </div>
+      )}
+      {byHosting ? <CrudPage config={ENVIRONMENTS_CONFIG} /> : <ProjectsList />}
+    </div>
+  );
+}
+
+/* ---------------- Projects list (one row per project) ---------------- */
+function ProjectsList() {
   const { ability } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
@@ -512,7 +538,7 @@ export default function ProjectsPage() {
     ? listRows.filter((r) => filterEntries.every(([k, v]) => matchesFilter(getPath(r, k), v)))
     : listRows;
 
-  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
+  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), columnLabels: PROJECT_COL_LABELS, fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
   const { sort, onSort, groups } = view;
   const filtered = view.rows;
 

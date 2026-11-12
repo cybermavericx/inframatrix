@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
-import { resourcesForModule } from '../modules/resources';
+import { navResourcesForModule } from '../modules/resources';
 import Security from '../pages/Security';
 import Footer from './Footer';
 
@@ -19,7 +19,7 @@ export default function Shell() {
   const activeModule = isAdmin ? '' : seg;
   const canUsers = ability.can('read', 'core.users');
   const sideResources = activeModule
-    ? resourcesForModule(activeModule).filter((r) => ability.can('read', r.resource))
+    ? navResourcesForModule(activeModule).filter((r) => ability.can('read', r.resource))
     : [];
   const initial = (user?.email?.[0] ?? '?').toUpperCase();
 

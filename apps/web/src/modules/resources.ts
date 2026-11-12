@@ -62,6 +62,8 @@ export interface CrudConfig {
   search?: false;
   /** Offer Mass edit even on a readOnly list (the API still decides what can be mass-edited). */
   massEdit?: boolean;
+  /** Not a menu item of its own (still routed): e.g. Environments lives on Projects → By hosting. */
+  hideFromNav?: boolean;
   dateRanges?: { from: string; to: string }[]; // validate "to" >= "from"
   /** When a field changes in the editor, compute derived field values from the current draft row
    *  (e.g. Payments: Period to / Due date from Period from + Repeats). Returns a partial patch that
@@ -137,6 +139,7 @@ export const RESOURCES: CrudConfig[] = [
     parentType: 'environment',
     readOnly: true,
     massEdit: true,
+    hideFromNav: true,
     columns: ['project.name', 'type', 'url', 'server.serverName', 'cicdStatus'],
     badgeColumns: ['type'],
     fields: [
@@ -490,3 +493,6 @@ export const RESOURCES: CrudConfig[] = [
 ];
 
 export const resourcesForModule = (module: string) => RESOURCES.filter((r) => r.module === module);
+/** The module's menu entries (sidebar + module home): resources minus those shown inside another page. */
+export const navResourcesForModule = (module: string) => resourcesForModule(module).filter((r) => !r.hideFromNav);
+export const ENVIRONMENTS_CONFIG = RESOURCES.find((r) => r.module === 'infra' && r.key === 'environments') as CrudConfig;
