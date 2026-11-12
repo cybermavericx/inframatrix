@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuth } from './auth/AuthContext';
 import Login from './pages/Login';
@@ -43,9 +43,10 @@ export default function App() {
         <Route path="admin/activity" element={<ActivityLogPage />} />
         <Route path="security" element={<Security />} />
         <Route path="infra/projects" element={<ProjectsPage />} />
+        <Route path="infra/environments" element={<EnvironmentsRedirect />} />
         <Route path="jobbag/notifications" element={<NotificationsPage />} />
         {RESOURCES
-          .filter((r) => !(r.module === 'infra' && r.key === 'projects') && !(r.module === 'jobbag' && r.key === 'notifications'))
+          .filter((r) => !(r.module === 'infra' && (r.key === 'projects' || r.key === 'environments')) && !(r.module === 'jobbag' && r.key === 'notifications'))
           .map((r) => (
             <Route key={r.endpoint} path={`${r.module}/${r.key}`} element={<CrudPage config={r} />} />
           ))}
@@ -53,4 +54,12 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/** Old /infra/environments links and bookmarks → Projects › By hosting, keeping their filter (?sf=, ?view=). */
+function EnvironmentsRedirect() {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set('by', 'hosting');
+  return <Navigate to={`/infra/projects?${params.toString()}`} replace />;
 }

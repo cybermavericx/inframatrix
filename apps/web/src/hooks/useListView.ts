@@ -35,10 +35,32 @@ export function defaultRowText(row: Row): string {
   return parts.join(' ').toLowerCase();
 }
 
+/** Readable name for a list column (a dot-path): the matching field's label, else the label of the
+ *  relation's ref field (server.serverName → serverId → "Server"), else the path in words. */
+export function columnLabel(col: string, fields: FieldDef[]): string {
+  const exact = fields.find((f) => f.name === col);
+  if (exact?.label) return exact.label;
+  if (col.includes('.')) {
+    const head = col.split('.')[0];
+    const ref = fields.find((f) => f.type === 'ref' && f.name.replace(/Id$/, '') === head);
+    if (ref?.label) return ref.label;
+  }
+  const words = col.replace(/\./g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** A form label trimmed for a column header / group-by option: drops "(hint)" and "— note" parts,
+ *  e.g. "Client (paid by) — optional" → "Client". */
+export function shortLabel(label: string): string {
+  return label.replace(/\s*\([^)]*\)/g, '').replace(/\s+—.*$/, '').trim() || label;
+}
+
 export interface UseListViewOptions {
   rows: Row[];
   /** Column keys shown/sortable/groupable (dot-paths allowed). */
   columns: string[];
+  /** Header text for columns that have no matching field (e.g. Projects' 'poc.name' → 'POC'). */
+  columnLabels?: Record<string, string>;
   /** Field defs from the resource's form view — the primary list of things the Filter can target. */
   fields: FieldDef[];
   /** Extra filter-only fields not shown as list columns (e.g. aggregates over child records such as
@@ -50,7 +72,7 @@ export interface UseListViewOptions {
   resource?: string;
 }
 
-export function useListView({ rows: allRows, columns, fields, extraFilterFields, searchText, resource }: UseListViewOptions) {
+export function useListView({ rows: allRows, columns, columnLabels, fields, extraFilterFields, searchText, resource }: UseListViewOptions) {
   // the server Filter narrows the rows the page already has (by id); everything below works on those
   const server = useServerView(resource);
   const rows = useMemo(
@@ -79,10 +101,10 @@ export function useListView({ rows: allRows, columns, fields, extraFilterFields,
     for (const col of columns) {
       if (have.has(col)) continue;
       have.add(col);
-      out.push({ name: col, label: col.replace(/\./g, ' '), type: isDateField(col) ? 'date' : undefined });
+      out.push({ name: col, label: columnLabels?.[col] ?? columnLabel(col, fields), type: isDateField(col) ? 'date' : undefined });
     }
     return out;
-  }, [fields, extraFilterFields, columns]);
+  }, [fields, extraFilterFields, columns, columnLabels]);
   const fieldByName = useMemo(() => new Map(filterFields.map((f) => [f.name, f])), [filterFields]);
 
   // Display value of a field for one row: relation label for refs, Yes/No for checkboxes, dd mmm yyyy

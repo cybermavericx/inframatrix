@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { CustomFilterModal } from './CustomFilterModal';
 import { FilterPanel } from './FilterPanel';
 import { ruleCount } from '../lib/serverFilter';
-import type { ListView } from '../hooks/useListView';
+import { shortLabel, type ListView } from '../hooks/useListView';
 
 // The reusable list control panel UI — search box · Filter & group (server-side: any field of the
 // record or its related records, nested groups with counts — kept in the URL) · Quick filter (the
@@ -41,7 +41,7 @@ export function ListToolbar({ view, placeholder, extra }: { view: ListView; plac
           <select className="input btn-sm" style={{ width: 'auto', padding: '4px 8px' }} value={view.groupBy} disabled={sGroups > 0}
             onChange={(e) => view.setGroupBy(e.target.value)} title={sGroups ? 'Grouped by Filter & group' : 'Group by'}>
             <option value="">Group by…</option>
-            {view.columns.map((c) => <option key={c} value={c}>{c.replace(/\./g, ' ')}</option>)}
+            {view.columns.map((c) => <option key={c} value={c}>{shortLabel(view.filterFields.find((f) => f.name === c)?.label ?? c)}</option>)}
           </select>
         )}
         {extra}

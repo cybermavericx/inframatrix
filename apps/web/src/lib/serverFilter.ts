@@ -47,8 +47,10 @@ export const STATUSES = ['current', 'outdated', 'eol'];
 export type ServerView = { f?: SearchGroup | null; g?: string[]; l?: Record<string, string>; k?: Record<string, { kind: FieldKind; options?: string[] }> };
 
 export const SF_PARAM = 'sf';
+/** Projects page view toggle: ?by=hosting shows one row per environment instead of per project. */
+export const BY_PARAM = 'by';
 /** URL keys that are NOT a page's column filters (pages treat every other key as one). */
-export const RESERVED_PARAMS = new Set(['view', SF_PARAM]);
+export const RESERVED_PARAMS = new Set(['view', SF_PARAM, BY_PARAM]);
 
 export function readServerView(raw: string | null): ServerView | null {
   if (!raw) return null;
