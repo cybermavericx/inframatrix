@@ -62,6 +62,7 @@ async function run(admin) {
   const envServers = await mkUser(admin, 'envsrv', ['infra'], ['infra.environments.viewer', 'infra.servers.viewer']);
   const serverOnly = await mkUser(admin, 'srv', ['infra'], ['infra.servers.viewer']);
   const projectOnly = await mkUser(admin, 'prj', ['infra'], ['infra.projects.viewer']);
+  const projectEnv = await mkUser(admin, 'prjenv', ['infra'], ['infra.projects.viewer', 'infra.environments.viewer']);
 
   console.log('\n=== A. Field tree: forbidden hops are hidden ===');
   const f = await get(envOnly, '/data/infra.environments/fields');
@@ -112,6 +113,33 @@ async function run(admin) {
   check('D7 admin Reference sheet keeps relation lists', da.ref.some((l) => l.startsWith('server') && l.includes('use one of these names:')));
   const de = await sheet((await get(envServers, '/data/infra.environments/export')).data);
   check('D8 granted relation keeps its column, others stay hidden', de.headers.includes('server') && !de.headers.includes('project'), de.headers);
+
+  console.log('\n=== E. Projects bundle export (Projects + Environments in one file) ===');
+  const bundle = async (t) => {
+    const r = await get(t, '/data/bundle/projects/export');
+    if (r.status !== 200) return { status: r.status, sheets: {} };
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(r.data);
+    const sheets = {};
+    wb.eachSheet((ws) => { const h = []; ws.getRow(1).eachCell((c) => h.push(String(c.value))); sheets[ws.name] = h; });
+    const ref = [];
+    wb.getWorksheet('Reference')?.eachRow((row) => ref.push(String(row.getCell(1).value ?? '')));
+    return { status: r.status, sheets, ref };
+  };
+  const bp = await bundle(projectOnly);
+  check('E1 projects viewer → 200', bp.status === 200, { status: bp.status });
+  check('E2 no pocEmail column without core.users', bp.sheets.Projects && !bp.sheets.Projects.includes('pocEmail') && bp.sheets.Projects.includes('projectId'), bp.sheets.Projects);
+  check('E3 no Environments sheet without environments read', !('Environments' in bp.sheets), Object.keys(bp.sheets));
+  check('E4 Reference lists no users/servers/git providers', !bp.ref.some((l) => /^(poc|server|gitProvider|checklistSubmittedBy|developers)\b/.test(l) && l.includes('use one of these names:')), bp.ref.filter((l) => l.includes('→')));
+  const bpe = await bundle(projectEnv);
+  const envH = bpe.sheets.Environments ?? [];
+  check('E5 projects+environments viewer gets the Environments sheet', bpe.status === 200 && envH.includes('projectName') && envH.includes('url'), envH);
+  check('E6 no server / git provider / submitter name columns', !['serverName', 'gitProviderName', 'checklistSubmittedByEmail'].some((h) => envH.includes(h)), envH);
+  check('E7 raw foreign keys not shown instead', !['serverId', 'gitProviderId', 'checklistSubmittedById', 'pocUserId'].some((h) => envH.includes(h) || (bpe.sheets.Projects ?? []).includes(h)));
+  const ba = await bundle(admin);
+  check('E8 admin keeps pocEmail and every Environments name column', (ba.sheets.Projects ?? []).includes('pocEmail')
+    && ['projectName', 'serverName', 'gitProviderName', 'checklistSubmittedByEmail'].every((h) => (ba.sheets.Environments ?? []).includes(h)), ba.sheets);
+  check('E9 no projects read → 403', (await get(envOnly, '/data/bundle/projects/export')).status === 403);
 
   console.log(`\n===== RESULT: ${pass} passed, ${fail} failed =====`);
   if (fails.length) console.log('FAILURES:\n - ' + fails.join('\n - '));

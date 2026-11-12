@@ -331,12 +331,19 @@ export class DataController {
   async exportProjectsBundle(@CurrentUser() user: AuthUser, @Res() res: Response) {
     const ability = buildAbility(user.permissions);
     if (!ability.can('read', 'infra.projects')) throw new ForbiddenException();
+    // Same per-hop rule as the other exports: a sheet or name column for something this user can't
+    // read is left out (never filled from the DB). Re-import only updates the columns a file has,
+    // so a file without them still round-trips.
+    const canEnvs = ability.can('read', 'infra.environments');
+    const canUsers = ability.can('read', 'core.users');
+    const canServers = ability.can('read', 'infra.servers');
+    const canGits = ability.can('read', 'infra.git-providers');
     const projRepo = this.repoFor('infra.projects');
     const envRepo = this.repoFor('infra.environments');
-    const users = await this.lookupMap(this.dataSource.getRepository(User), 'email');
+    const users = canUsers ? await this.lookupMap(this.dataSource.getRepository(User), 'email') : null;
     const projects = await this.lookupMap(projRepo, 'name');
-    const servers = await this.lookupMap(this.repoFor('infra.servers'), 'serverName');
-    const gits = await this.lookupMap(this.repoFor('infra.git-providers'), 'name');
+    const servers = canEnvs && canServers ? await this.lookupMap(this.repoFor('infra.servers'), 'serverName') : null;
+    const gits = canEnvs && canGits ? await this.lookupMap(this.repoFor('infra.git-providers'), 'name') : null;
 
     const wb = new ExcelJS.Workbook();
     // `projectId` is the stable unique number for each project, shown in BOTH tabs: in Projects it
@@ -347,7 +354,7 @@ export class DataController {
     this.addDataSheet(wb, 'Projects', projRepo, allProjects, {
       prepend: [
         { header: 'projectId', value: (p) => p.id },
-        { header: 'pocEmail', value: (p) => users.toLabel.get(p.pocUserId as number) ?? '' },
+        ...(users ? [{ header: 'pocEmail', value: (p: ObjectLiteral) => users.toLabel.get(p.pocUserId as number) ?? '' }] : []),
       ],
       exclude: ['id', 'pocUserId'],   // id shown as projectId; pocUserId covered by pocEmail
       hidden: ['importUid'],          // kept for round-trip matching, hidden in Excel
@@ -355,21 +362,26 @@ export class DataController {
     // Environments = the existing ones, PLUS a pre-filled template row (projectId + projectName, rest
     // blank) for every project that has no environment yet — so each project is listed in this tab and
     // you can just type the env details and re-import (no copy-paste from tab 1, no missing projects).
-    const envRows = await envRepo.find();
-    const haveEnv = new Set(envRows.map((e) => e.projectId));
-    const envSeed = allProjects.filter((p) => !haveEnv.has(p.id)).map((p) => ({ projectId: p.id }));
-    this.addDataSheet(wb, 'Environments', envRepo, [...envRows, ...envSeed], {
-      prepend: [
-        { header: 'projectId', value: (e) => e.projectId ?? '' },
-        { header: 'projectName', value: (e) => projects.toLabel.get(e.projectId as number) ?? '' },
-        { header: 'serverName', value: (e) => servers.toLabel.get(e.serverId as number) ?? '' },
-        { header: 'gitProviderName', value: (e) => gits.toLabel.get(e.gitProviderId as number) ?? '' },
-        { header: 'checklistSubmittedByEmail', value: (e) => users.toLabel.get(e.checklistSubmittedById as number) ?? '' },
-      ],
-      exclude: ['id', 'projectId', 'serverId', 'gitProviderId', 'checklistSubmittedById'],
-      hidden: ['importUid'],
-    });
-    await this.addReferenceSheet(wb, [{ resource: 'infra.projects', repo: projRepo }, { resource: 'infra.environments', repo: envRepo }], ability);
+    if (canEnvs) {
+      const envRows = await envRepo.find();
+      const haveEnv = new Set(envRows.map((e) => e.projectId));
+      const envSeed = allProjects.filter((p) => !haveEnv.has(p.id)).map((p) => ({ projectId: p.id }));
+      this.addDataSheet(wb, 'Environments', envRepo, [...envRows, ...envSeed], {
+        prepend: [
+          { header: 'projectId', value: (e) => e.projectId ?? '' },
+          { header: 'projectName', value: (e) => projects.toLabel.get(e.projectId as number) ?? '' },
+          ...(servers ? [{ header: 'serverName', value: (e: ObjectLiteral) => servers.toLabel.get(e.serverId as number) ?? '' }] : []),
+          ...(gits ? [{ header: 'gitProviderName', value: (e: ObjectLiteral) => gits.toLabel.get(e.gitProviderId as number) ?? '' }] : []),
+          ...(users ? [{ header: 'checklistSubmittedByEmail', value: (e: ObjectLiteral) => users.toLabel.get(e.checklistSubmittedById as number) ?? '' }] : []),
+        ],
+        exclude: ['id', 'projectId', 'serverId', 'gitProviderId', 'checklistSubmittedById'],
+        hidden: ['importUid'],
+      });
+    }
+    await this.addReferenceSheet(wb, [
+      { resource: 'infra.projects', repo: projRepo },
+      ...(canEnvs ? [{ resource: 'infra.environments', repo: envRepo }] : []),
+    ], ability);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="inframatrix-projects.xlsx"');
