@@ -13,6 +13,14 @@ export interface IntegrationTypeField {
    *  ('possible') or an open denylist ('avoidable'), never both. Defaults to 'possible' when unset
    *  (older field defs saved before this toggle existed); see inferMode below. */
   mode?: 'possible' | 'avoidable';
+  /** 'version' = sortable version number (version operators, outdated status); unset = text */
+  kind?: 'text' | 'version';
+}
+
+/** The fixed list in force (mandatory mode, non-empty). The API REJECTS a changed value outside it;
+ *  an empty list means free text. Mirrors fixedList() in apps/api/src/infra/field-catalog.ts. */
+export function fixedList(field: IntegrationTypeField): string[] {
+  return inferMode(field) === 'possible' ? (field.possibleValues ?? []).map((v) => String(v ?? '').trim()).filter(Boolean) : [];
 }
 
 /** Mode to use when a field predates the toggle (no `mode` saved): infer from whichever list is
@@ -39,7 +47,7 @@ export function computeFieldFlags(field: IntegrationTypeField, rawValue: string 
   const avoided = field.avoidableValues?.find((a) => a && vLower.includes(a.toLowerCase()));
   if (avoided) flags.push(`"${v}" matches an avoided pattern ("${avoided}").`);
   if (field.possibleValues?.length && !field.possibleValues.some((p) => p.toLowerCase() === vLower)) {
-    flags.push(`"${v}" is not one of the suggested values.`);
+    flags.push(`"${v}" is not in the allowed list.`);
   }
   return flags;
 }

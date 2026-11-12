@@ -6,6 +6,9 @@ import { AccessPicker } from '../components/AccessPicker';
 import { useListView } from '../hooks/useListView';
 import { useImportExport } from '../hooks/useImportExport';
 import { ListToolbar } from '../components/ListToolbar';
+import { MassEditModal } from '../components/MassEditModal';
+import { GroupedRows } from '../components/GroupedRows';
+import type { Row } from '../hooks/useListView';
 import { ExportPicker } from '../components/ExportPicker';
 import { ActivityHistoryModal } from '../components/ActivityLogView';
 import type { FieldDef } from '../modules/resources';
@@ -71,7 +74,8 @@ export default function Users() {
   });
 
   // Same shared list control panel as the other screens — search + custom filter over the users list.
-  const view = useListView({ rows: users as unknown as Record<string, unknown>[], columns: ['name', 'email'], fields: userFields });
+  const view = useListView({ rows: users as unknown as Record<string, unknown>[], columns: ['name', 'email'], fields: userFields, resource: 'core.users' });
+  const [massEditing, setMassEditing] = useState(false);
   const visibleUsers = view.rows as unknown as UserRow[];
 
   // Onboarding: select users → email each a "set your password" link (or copy it when no SMTP).
@@ -159,6 +163,24 @@ export default function Users() {
     onError: (e) => setErr(apiErr(e)),
   });
 
+  const renderUser = (u: UserRow) => (
+                <tr key={u.id}>                  {canUpdate && <td><input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleUser(u.id)} /></td>}
+                  <td>{u.name}</td>
+                  <td>{u.email}</td>
+                  <td>
+                    {(u.modules ?? []).map((m) => (
+                      <span key={m.key} className="badge badge-gray" style={{ marginRight: 4 }}>{m.key}</span>
+                    ))}
+                  </td>
+                  <td><MfaBadge u={u} /></td>
+                  <td className="row-actions">
+                    {(canUpdate || canCreate) && <button className="btn btn-ghost btn-sm" onClick={() => startEdit(u)}>Edit</button>}
+                    {canUpdate && <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Email this user a set-password link" disabled={sendSetup.isPending} onClick={() => sendSetup.mutate([u.id])}>Send setup</button>}
+                    <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Who changed what on this account, and when" onClick={() => setHistoryUser(u)}>History</button>
+                  </td>
+                </tr>
+  );
+
   return (
     <div>
       <div className="page-head">
@@ -224,6 +246,7 @@ export default function Users() {
           {canUpdate && selected.size > 0 && (
             <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', flexWrap: 'wrap' }}>
               <strong>{selected.size} selected</strong>
+              <button className="btn btn-ghost btn-sm" onClick={() => setMassEditing(true)}>Mass edit</button>
               <button className="btn btn-primary btn-sm" disabled={sendSetup.isPending} onClick={() => sendSetup.mutate([...selected])}>
                 {sendSetup.isPending ? 'Sending…' : 'Send password setup'}
               </button>
@@ -248,29 +271,22 @@ export default function Users() {
             <tbody>
               {users.length === 0 && <tr><td colSpan={6} className="empty">No users.</td></tr>}
               {users.length > 0 && visibleUsers.length === 0 && <tr><td colSpan={6} className="empty">No users match this filter.</td></tr>}
-              {visibleUsers.map((u) => (
-                <tr key={u.id}>
-                  {canUpdate && <td><input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleUser(u.id)} /></td>}
-                  <td>{u.name}</td>
-                  <td>{u.email}</td>
-                  <td>
-                    {(u.modules ?? []).map((m) => (
-                      <span key={m.key} className="badge badge-gray" style={{ marginRight: 4 }}>{m.key}</span>
-                    ))}
-                  </td>
-                  <td><MfaBadge u={u} /></td>
-                  <td className="row-actions">
-                    {(canUpdate || canCreate) && <button className="btn btn-ghost btn-sm" onClick={() => startEdit(u)}>Edit</button>}
-                    {canUpdate && <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Email this user a set-password link" disabled={sendSetup.isPending} onClick={() => sendSetup.mutate([u.id])}>Send setup</button>}
-                    <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} title="Who changed what on this account, and when" onClick={() => setHistoryUser(u)}>History</button>
-                  </td>
-                </tr>
-              ))}
+              {view.groups ? <GroupedRows view={view} colSpan={6} renderRow={(r: Row) => renderUser(r as unknown as UserRow)} /> : visibleUsers.map(renderUser)}
             </tbody>
           </table>
           </div>
         </div>
       </div>
+
+      {massEditing && (
+        <MassEditModal resource="core.users" ids={[...selected]}
+          fields={[
+            { name: 'status', label: 'Active (Y/N)', type: 'select', options: ['Y', 'N'] },
+            { name: 'mfaRequired', label: 'Two-factor required', type: 'checkbox' },
+          ]}
+          invalidate={[['/users']]} onClose={() => setMassEditing(false)}
+          onDone={() => { setMassEditing(false); setSelected(new Set()); }} />
+      )}
 
       {historyUser && (
         <ActivityHistoryModal title={historyUser.name} entityType="user" entityId={historyUser.id} onClose={() => setHistoryUser(null)} />

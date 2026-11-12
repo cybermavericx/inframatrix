@@ -17,7 +17,13 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { buildAbility, type AppAbility } from '../common/casl/ability.factory';
 import type { AuthUser } from '../auth/auth.types';
 import { canReadEntity } from './entity-access';
-import { SearchEngine } from './search';
+import { kindOf, SearchEngine } from './search';
+import { MassEdit, massEditable } from './mass-edit';
+import { Environment } from '../infra/entities/environment.entity';
+import { Integration } from '../infra/entities/integration.entity';
+import { IntegrationType } from '../infra/entities/integration-type.entity';
+import { fixedList } from '../infra/field-catalog';
+import { importHooks } from '../infra/field-catalog';
 
 type ImportResult = { created: number; updated: number; skipped: number; errors: string[] };
 type ParsedRow = { row: number; data: Record<string, unknown> };
@@ -275,6 +281,9 @@ export class DataController {
     const resourceKey = Object.keys(RESOURCE_ENTITIES).find((k) => RESOURCE_ENTITIES[k] === repo.target);
     const auditType = resourceKey ? AUDIT_TYPE_BY_RESOURCE[resourceKey] : undefined;
 
+    // custom-field rules + searchable copies for integrations / integration types (null for others)
+    const hooks = importHooks(repo.manager, repo.target);
+
     let created = 0, updated = 0, skipped = 0;
     const errors: string[] = [];
     for (const { row: i, data: raw } of parsed) {
@@ -296,13 +305,17 @@ export class DataController {
         if (missing.length) { skipped++; if (errors.length < 15) errors.push(`${label}${i}: missing required field(s): ${missing.join(', ')}`); continue; }
         if (existing) {
           if ((existing as { deletedAt?: unknown }).deletedAt) await repo.restore(existing.id);
+          await hooks?.before(obj, existing as Record<string, unknown>);
           await repo.update(existing.id, obj);
           if (auditType) await recordUpdate(repo, auditType, existing.id, existing as Record<string, unknown>, obj);
+          await hooks?.after(existing.id);
           updated++;
         } else {
           // never reuse an id that belongs to a record (incl. soft-deleted): retired or blank → fresh UUID
           if (hasUid && (retiredUid || !obj.importUid)) obj.importUid = randomUUID();
+          await hooks?.before(obj, null);
           const saved = await repo.save(repo.create(obj)); created++;
+          await hooks?.after(saved.id);
           if (auditType) await recordLifecycle(repo, auditType, saved as Record<string, unknown>, 'created');
         }
       } catch (e) { skipped++; if (errors.length < 15) errors.push(`${label}${i}: ${(e as { message?: string }).message ?? String(e)}`); }
@@ -559,7 +572,7 @@ export class DataController {
   private static readonly MAX_FIELD_DEPTH = 4;
 
   @Get(':resource/fields')
-  fields(@Param('resource') resource: string, @Query('path') path: string | undefined, @CurrentUser() user: AuthUser) {
+  async fields(@Param('resource') resource: string, @Query('path') path: string | undefined, @CurrentUser() user: AuthUser) {
     const ability = buildAbility(user.permissions);
     if (!ability.can('read', resource)) throw new ForbiddenException();
     let repo = this.repoFor(resource);
@@ -577,13 +590,53 @@ export class DataController {
         nested = true;
       }
     }
+    // kind / options / special are for the Filter panel (phase 4); the export picker reads name/label only
+    const resKey = Object.keys(RESOURCE_ENTITIES).find((k) => RESOURCE_ENTITIES[k] === repo.metadata.target);
+    const enums = resKey ? RESOURCE_ENUMS[resKey] ?? {} : {};
     return {
-      own: this.ownFieldsFor(repo, nested),
+      own: this.ownFieldsFor(repo, nested).map((f) => {
+        const col = repo.metadata.columns.find((c) => c.propertyName === f.name);
+        const kind = col ? kindOf(col) : null;
+        return { ...f, kind, ...(enums[f.name] ? { options: enums[f.name] } : {}) };
+      }),
       relations: this.relationsFor(repo, ability, chain, nested),
+      special: await this.specialFieldsFor(repo, ability),
+      massEdit: !nested && massEditable(resource) && ability.can('update', resource),
       // whether THIS node's entity has a stable re-import identity — only meaningful at the root
       // (path=''), where the picker uses it to decide whether "Import-compatible export" can be offered.
       hasImportUid: repo.metadata.columns.some((c) => c.propertyName === 'importUid'),
     };
+  }
+
+  /** Technology fields of an environment node: each custom_fields type's fields (cf:<type>:<key>), their
+   *  option status for group-by (cfstatus:…), and computed:hasOutdatedTechnology. Same read rule as the
+   *  search engine: needs read on integrations and integration types, else nothing is offered. */
+  private async specialFieldsFor(repo: Repository<ObjectLiteral>, ability: AppAbility) {
+    if (repo.metadata.target !== Environment || !this.canReadEntity(ability, Integration) || !this.canReadEntity(ability, IntegrationType)) return [];
+    const types = await this.dataSource.getRepository(IntegrationType).find({ where: { behavior: 'custom_fields' }, order: { name: 'ASC' } });
+    const out: { path: string; label: string; kind: 'version' | 'text' | 'status' | 'boolean'; options?: string[] }[] = [
+      { path: 'computed:hasOutdatedTechnology', label: 'Has outdated technology', kind: 'boolean' },
+    ];
+    for (const t of types) {
+      for (const f of (Array.isArray(t.fields) ? t.fields : [])) {
+        if (!f || typeof f.key !== 'string' || !f.key) continue;
+        const label = `${t.name} › ${f.label || f.key}`;
+        const list = fixedList(f);
+        out.push({ path: `cf:${t.id}:${f.key}`, label, kind: f.kind === 'version' ? 'version' : 'text', ...(list.length ? { options: list } : {}) });
+        out.push({ path: `cfstatus:${t.id}:${f.key}`, label: `${label} (status)`, kind: 'status', options: ['current', 'outdated', 'eol'] });
+      }
+    }
+    return out;
+  }
+
+  /** Mass edit: one field → one value on the selected records, all-or-nothing. See data/mass-edit.ts. */
+  @Post(':resource/mass-edit')
+  @HttpCode(200)
+  massEdit(@Param('resource') resource: string, @Body() body: unknown, @CurrentUser() user: AuthUser) {
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', resource)) throw new ForbiddenException();
+    this.repoFor(resource); // unknown resource → 404, same as the other /data routes
+    return new MassEdit(this.dataSource, ability).run(resource, body);
   }
 
   /** Server-side search (Odoo-style domain) over any readable field path: nested AND/OR rules, `any`

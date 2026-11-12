@@ -180,7 +180,7 @@ export default function Dashboard() {
       list.push({ id: 'environments', group: 'Infra', el: <StatCard label="Environments" value={e.total} sub={`staging ${e.staging} · uat ${e.uat} · live ${e.live} — click to list`} accent="violet" onClick={() => toggleExpanded('environments')} /> });
       list.push({ id: 'live-no-checklist', group: 'Infra', el: <StatCard label="Live envs missing checklist" value={e.liveMissingChecklist} accent="red" onClick={() => nav('/infra/projects?envLiveMissingChecklist=true')} /> });
       list.push({ id: 'integrations', group: 'Infra', el: <StatCard label="Integrations" value={data.integrations.total} sub="click to list" accent="gray" onClick={() => toggleExpanded('integrations')} /> });
-      list.push({ id: 'integration-flags', group: 'Infra', el: <StatCard label="CMS/Integration flags" value={data.integrationFlags.total} sub="generic URL or non-suggested value — click to list" accent="red" onClick={() => toggleExpanded('integration-flags')} /> });
+      list.push({ id: 'integration-flags', group: 'Infra', el: <StatCard label="Flagged" value={data.integrationFlags.total} sub="integration value not in its allowed list, or avoided — click to list" accent="red" onClick={() => toggleExpanded('integration-flags')} /> });
       list.push({ id: 'servers-breakdown', group: 'Infra', el: <BreakdownCard title="Servers by provider" data={s.byProvider} onItem={(p) => nav(`/infra/servers?provider=${encodeURIComponent(p)}`)} /> });
       list.push({ id: 'server-usage', group: 'Infra', el: <ServerUsageCard rows={data.serversUsage} onServer={(name) => nav(`/infra/servers?serverName=${encodeURIComponent(name)}`)} /> });
       list.push({ id: 'by-poc', group: 'Infra', el: <PocCard rows={data.byPoc} onPoc={(id) => nav(`/infra/projects?pocUserId=${id ?? ''}`)} /> });
@@ -286,7 +286,7 @@ export default function Dashboard() {
               onRowClick={(r) => r.projectId != null && nav(`/infra/projects?view=${r.projectId}`)} />
           )}
           {data && expanded === 'integration-flags' && (
-            <DrillPanel title="CMS/Integration flags" onClose={() => setExpanded(null)}
+            <DrillPanel title="Flagged integrations" onClose={() => setExpanded(null)}
               columns={['Project', 'Environment', 'Type', 'Flags']}
               rows={data.integrationFlags.items}
               renderRow={(r) => [r.projectName, r.envType, r.integrationTypeName, r.flags.join(' ')]}

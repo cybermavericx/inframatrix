@@ -20,7 +20,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 const RES = 'infra.projects';
 
 @Injectable()
-class ProjectsService extends CrudService<Project> {
+export class ProjectsService extends CrudService<Project> {
   constructor(
     @InjectRepository(Project) repo: Repository<Project>,
     @InjectRepository(Environment) private readonly envRepo: Repository<Environment>,

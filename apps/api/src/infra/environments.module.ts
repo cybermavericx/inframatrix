@@ -13,7 +13,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 const RES = 'infra.environments';
 
 @Injectable()
-class EnvironmentsService extends CrudService<Environment> {
+export class EnvironmentsService extends CrudService<Environment> {
   constructor(@InjectRepository(Environment) repo: Repository<Environment>) {
     super(repo, ['project', 'server', 'gitProvider'], [], 'environment');
   }

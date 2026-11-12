@@ -14,7 +14,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 
 @Injectable()
-class VendorsService extends CrudService<Vendor> {
+export class VendorsService extends CrudService<Vendor> {
   constructor(
     @InjectRepository(Vendor) repo: Repository<Vendor>,
     @InjectRepository(VendorService) private readonly vsRepo: Repository<VendorService>,

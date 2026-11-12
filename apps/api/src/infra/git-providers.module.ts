@@ -13,7 +13,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 const RES = 'infra.git-providers';
 
 @Injectable()
-class GitProvidersService extends CrudService<GitProvider> {
+export class GitProvidersService extends CrudService<GitProvider> {
   constructor(@InjectRepository(GitProvider) repo: Repository<GitProvider>) { super(repo, [], [], 'git_provider'); }
 }
 

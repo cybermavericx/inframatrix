@@ -6,12 +6,15 @@ import { useAuth } from '../auth/AuthContext';
 import { RecordForm, cleanPayload } from '../components/RecordForm';
 import { useListView, getPath } from '../hooks/useListView';
 import { ListToolbar } from '../components/ListToolbar';
+import { GroupedRows } from '../components/GroupedRows';
+import { MassEditModal } from '../components/MassEditModal';
+import { RESERVED_PARAMS } from '../lib/serverFilter';
 import { RecordDetail } from '../components/RecordDetail';
 import { ExportPicker } from '../components/ExportPicker';
 import { useToast } from '../components/Toast';
 import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
-import { computeFieldFlags, computeIntegrationFlags, type IntegrationTypeField } from '../lib/integrationFlags';
+import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
 
 type Row = Record<string, unknown>;
 
@@ -49,18 +52,14 @@ type HostingItem = { envId: number; type: string; url: string | null; server: st
 // you can ask "projects whose environment URL contains example.com", "projects having SendGrid",
 // or "projects with Technology = php 8.3" from the Projects list itself.
 const PROJECT_FILTER_EXTRAS: FieldDef[] = [
-  // grouped under drill-in "relations" in the Odoo-style filter picker (Environments ▸ / Integrations ▸)
-  { name: 'envUrls', label: 'URL', group: 'Environments' },
-  { name: 'envTypes', label: 'Type', group: 'Environments' },
-  { name: 'envServers', label: 'Server', group: 'Environments' },
+  // Integration values are computed in the page and have no server path yet, so they stay in the Quick
+  // filter. Environment URL / type / server and developers are in Filter & group (Environments, Developers).
   { name: 'integrationTypes', label: 'Type', group: 'Integrations' },
   { name: 'integrationKeys', label: 'Key', group: 'Integrations' },
   { name: 'integrationValues', label: 'Value', group: 'Integrations' },
   // Combined "<type> <key> <value>" per integration — use one "contains" rule for a precise
   // same-integration match (e.g. all PHP 8.x hostings → contains "php 8").
   { name: 'integrationDetails', label: 'Type · key · value', group: 'Integrations' },
-  // array of the project's developer names → "projects where a developer is X"
-  { name: 'developerNames', label: 'Developers' },
 ];
 const PROJECT_COLSPAN = 8; // checkbox + 4 cols + Developers + Hosting + actions
 const envFields: FieldDef[] = [
@@ -169,8 +168,15 @@ function IntegrationsManager({ environmentId, canEdit }: { environmentId: number
         const isCustom = rType?.behavior === 'custom_fields';
         const rFields = (rType?.fields as IntegrationTypeField[] | undefined) ?? [];
         const rValues = (r.fieldValues as Record<string, string> | undefined) ?? {};
+        const rStatus = (r.fieldStatus as Record<string, { status: string | null; level: string | null }> | undefined) ?? {};
+        // outdated / EOL come from the option's status (admin-set); "line only" = a version without its patch
+        const note = (f: IntegrationTypeField) => {
+          const st = rStatus[f.key];
+          const bits = [st?.status === 'outdated' ? 'outdated' : st?.status === 'eol' ? 'EOL' : '', f.kind === 'version' && st?.level === 'line' ? 'line only' : ''].filter(Boolean);
+          return bits.length ? ` (${bits.join(', ')})` : '';
+        };
         const summary = isCustom
-          ? rFields.map((f) => `${f.label}: ${rValues[f.key] ?? ''}`).filter((s) => !s.endsWith(': ')).join(', ')
+          ? rFields.map((f) => `${f.label}: ${rValues[f.key] ?? ''}${rValues[f.key] ? note(f) : ''}`).filter((s) => !s.endsWith(': ')).join(', ')
           : String(r.keyName ? `${r.keyName}: ${r.value ?? ''}` : (r.value ?? (r.account as Row)?.accountName ?? ''));
         const flags = isCustom ? computeIntegrationFlags(rFields, rValues) : [];
         return (
@@ -190,16 +196,20 @@ function IntegrationsManager({ environmentId, canEdit }: { environmentId: number
               const val = (editing.fieldValues as Record<string, string> | undefined)?.[cf.key] ?? '';
               const flags = computeFieldFlags(cf, val);
               const listId = `cf-${cf.key}`;
+              const list = fixedList(cf);
+              const setVal = (v: string) => setEditing((p) => ({ ...(p ?? {}), fieldValues: { ...((p?.fieldValues as Row) ?? {}), [cf.key]: v } }));
+              // the list is offered as suggestions; any other value still saves and is flagged (dashboard "Flagged")
               return (
                 <div key={cf.key} className="field" style={{ marginTop: 8 }}>
                   <label>{cf.label}</label>
                   <input
                     className="input"
-                    list={cf.possibleValues?.length ? listId : undefined}
+                    list={list.length ? listId : undefined}
                     value={val}
-                    onChange={(e) => setEditing((p) => ({ ...(p ?? {}), fieldValues: { ...((p?.fieldValues as Row) ?? {}), [cf.key]: e.target.value } }))}
+                    placeholder={cf.kind === 'version' ? 'e.g. 8.3.35, or 8.3 if the patch is unknown' : undefined}
+                    onChange={(e) => setVal(e.target.value)}
                   />
-                  {cf.possibleValues?.length ? <datalist id={listId}>{cf.possibleValues.map((s) => <option key={s} value={s} />)}</datalist> : null}
+                  {list.length ? <datalist id={listId}>{list.map((o) => <option key={o} value={o} />)}</datalist> : null}
                   {flags.map((msg) => <div key={msg} className="error-text" style={{ fontSize: 12, marginTop: 2 }}>⚠ {msg}</div>)}
                 </div>
               );
@@ -485,6 +495,7 @@ export default function ProjectsPage() {
     input.value = '';
   };
 
+  const [massEditing, setMassEditing] = useState(false);
   if (!canRead) return <div className="card"><div className="card-body">You do not have access to Projects.</div></div>;
 
   // Same shared list control panel as every other screen — only the columns/fields differ.
@@ -493,7 +504,7 @@ export default function ProjectsPage() {
 
   // Optional column filters from the URL (e.g. /infra/projects?publishState=ready) — used by dashboard
   // drill-downs. Mirrors CrudPage's same mechanism, but array-aware (envTypes etc. are arrays per project).
-  const filterEntries = [...searchParams.entries()].filter(([k]) => k !== 'view');
+  const filterEntries = [...searchParams.entries()].filter(([k]) => !RESERVED_PARAMS.has(k));
   const matchesFilter = (val: unknown, want: string) => Array.isArray(val)
     ? val.some((x) => String(x).toLowerCase() === want.toLowerCase())
     : String(val ?? '').toLowerCase() === want.toLowerCase();
@@ -501,8 +512,8 @@ export default function ProjectsPage() {
     ? listRows.filter((r) => filterEntries.every(([k, v]) => matchesFilter(getPath(r, k), v)))
     : listRows;
 
-  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS });
-  const { sort, onSort, groups, collapsedGroups, toggleGroup } = view;
+  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
+  const { sort, onSort, groups } = view;
   const filtered = view.rows;
 
   const allIds = filtered.map((r) => String(r.id));
@@ -584,6 +595,12 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {massEditing && (
+        <MassEditModal resource="infra.projects" ids={[...selected].map(Number)}
+          fields={projectFields.filter((f) => f.name !== 'developerIds')}
+          invalidate={[['/infra/projects']]} onClose={() => setMassEditing(false)}
+          onDone={() => { setMassEditing(false); setSelected(new Set()); }} />
+      )}
       <ListToolbar view={view} placeholder="Search projects… (name, POC, server, IP, URL)" />
 
       {editing && <ProjectEditor initial={editing} canEdit={canUpdate || canCreate} onClose={() => setEditing(null)} initialTab={editorTab} />}
@@ -615,6 +632,7 @@ export default function ProjectsPage() {
           <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
             <strong>{selected.size} selected</strong>
             <button className="btn btn-ghost btn-sm" onClick={() => setExporting(true)}>Export selected</button>
+            {canUpdate && <button className="btn btn-ghost btn-sm" onClick={() => setMassEditing(true)}>Mass edit</button>}
             {canUpdate && <button className="btn btn-ghost btn-sm" disabled={bulk.isPending} onClick={() => bulk.mutate({ ids: [...selected], kind: 'publish' })}>Publish selected</button>}
             {canUpdate && <button className="btn btn-ghost btn-sm" disabled={bulk.isPending} onClick={() => bulk.mutate({ ids: [...selected], kind: 'revert' })}>Revert to Draft</button>}
             {canDelete && <button className="btn btn-danger btn-sm" disabled={bulk.isPending} onClick={() => { if (confirm(`Delete ${selected.size} project(s)?`)) bulk.mutate({ ids: [...selected], kind: 'delete' }); }}>Delete selected</button>}
@@ -639,18 +657,7 @@ export default function ProjectsPage() {
           <tbody>
             {rows.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects yet.</td></tr>}
             {rows.length > 0 && filtered.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects match this filter.</td></tr>}
-            {groups
-              ? groups.map(([key, gRows]) => (
-                  <Fragment key={'grp-' + key}>
-                    <tr onClick={() => toggleGroup(key)} style={{ cursor: 'pointer', background: 'var(--bg-2)' }}>
-                      <td colSpan={PROJECT_COLSPAN} style={{ fontWeight: 600, padding: '7px 12px' }}>
-                        {collapsedGroups.has(key) ? '▸' : '▾'} {key} <span className="muted" style={{ fontWeight: 400 }}>({gRows.length})</span>
-                      </td>
-                    </tr>
-                    {!collapsedGroups.has(key) && gRows.map(renderProjectRow)}
-                  </Fragment>
-                ))
-              : filtered.map(renderProjectRow)}
+            {groups ? <GroupedRows view={view} colSpan={PROJECT_COLSPAN} renderRow={renderProjectRow} /> : filtered.map(renderProjectRow)}
           </tbody>
         </table>
       </div>

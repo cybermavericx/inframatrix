@@ -57,6 +57,11 @@ export interface CrudConfig {
   resolvable?: boolean;
   /** Read-only resource: hide New/Edit (e.g. the Reminders log is created from records, not here). */
   readOnly?: boolean;
+  /** false = no server Filter & group panel (a list whose permission resource is another table's,
+   *  e.g. Reminder groups uses 'jobbag.reminders'). */
+  search?: false;
+  /** Offer Mass edit even on a readOnly list (the API still decides what can be mass-edited). */
+  massEdit?: boolean;
   dateRanges?: { from: string; to: string }[]; // validate "to" >= "from"
   /** When a field changes in the editor, compute derived field values from the current draft row
    *  (e.g. Payments: Period to / Due date from Period from + Repeats). Returns a partial patch that
@@ -121,6 +126,31 @@ export const RESOURCES: CrudConfig[] = [
       { name: 'amcFrom', label: 'AMC from', type: 'date' },
       { name: 'amcTo', label: 'AMC to', type: 'date' },
       { name: 'notes', label: 'Notes', type: 'textarea' },
+    ],
+  },
+  {
+    // Every hosting across projects, for Filter & group (e.g. "CI/CD any of auto, manual", "PHP older
+    // than 8.3.36 grouped by server") and Mass edit. Environments are still created/edited inside
+    // their project; here they're listed, filtered and mass-edited.
+    module: 'infra', key: 'environments', title: 'Environments',
+    resource: 'infra.environments', endpoint: '/infra/environments',
+    parentType: 'environment',
+    readOnly: true,
+    massEdit: true,
+    columns: ['project.name', 'type', 'url', 'server.serverName', 'cicdStatus'],
+    badgeColumns: ['type'],
+    fields: [
+      { name: 'projectId', label: 'Project', type: 'ref', refEndpoint: '/infra/projects', refLabel: 'name' },
+      { name: 'type', label: 'Type', type: 'select', options: ['staging', 'uat', 'live'] },
+      { name: 'url', label: 'URL' },
+      { name: 'serverId', label: 'Server', type: 'ref', refEndpoint: '/infra/servers', refLabel: 'serverName' },
+      { name: 'gitProviderId', label: 'Git provider', type: 'ref', refEndpoint: '/infra/git-providers', refLabel: 'name' },
+      { name: 'repoUrl', label: 'Repo URL' },
+      { name: 'repoBranch', label: 'Repo branch' },
+      { name: 'cicdStatus', label: 'CI/CD', type: 'select', options: ['auto', 'manual', 'disabled'] },
+      { name: 'checklistCompleted', label: 'Go-live checklist completed', type: 'checkbox' },
+      { name: 'checklistSubmittedDate', label: 'Checklist submitted date', type: 'date' },
+      { name: 'checklistSubmittedVersion', label: 'Checklist version' },
     ],
   },
   {
@@ -214,11 +244,6 @@ export const RESOURCES: CrudConfig[] = [
     parentType: 'client',
     columns: ['name', 'email', 'phone', 'status'],
     relatedLinks: [{ label: 'Billings', to: (r) => `/jobbag/payments?clientId=${r.id}` }],
-    // Drill into the services billed to this client / its payments (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'serviceNames', label: 'Name', group: 'Services' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-    ],
     // In the detail view: the services billed to this client (from payments) with each period's
     // payment status — click a row to open the underlying vendor-service. Plus reminders & notes.
     relatedPanels: [
@@ -248,14 +273,6 @@ export const RESOURCES: CrudConfig[] = [
     parentType: 'vendor',
     columns: ['vendorName', 'pocName', 'pocEmail', 'status'],
     relatedLinks: [{ label: 'Payments', to: (r) => `/jobbag/payments?vendorId=${r.id}` }],
-    // Drill into the vendor's services / payments (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'serviceNames', label: 'Name', group: 'Services' },
-      { name: 'serviceStatuses', label: 'Status', group: 'Services' },
-      { name: 'serviceExpiries', label: 'Expiry date', type: 'date', group: 'Services' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-      { name: 'paymentDirections', label: 'Direction', group: 'Payments' },
-    ],
     childList: {
       endpoint: '/jobbag/vendor-services', foreignKey: 'vendorId', label: 'serviceName',
       meta: ['status', 'expiryDate', 'cost'], linkPath: '/jobbag/vendor-services', title: 'Services',
@@ -285,15 +302,6 @@ export const RESOURCES: CrudConfig[] = [
     badgeColumns: ['status', 'isRenewable'],
     relatedLinks: [{ label: 'Payments', to: (r) => `/jobbag/payments?vendorServiceId=${r.id}` }],
     dateRanges: [{ from: 'startDate', to: 'expiryDate' }],
-    // Vendor (direct) + the service's payments / billed clients (aggregates from the list endpoint).
-    filterRelations: [
-      { name: 'vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'vendor.status', label: 'Status', group: 'Vendor' },
-      { name: 'vendor.pocName', label: 'POC', group: 'Vendor' },
-      { name: 'paymentStatuses', label: 'Status', group: 'Payments' },
-      { name: 'paymentDirections', label: 'Direction', group: 'Payments' },
-      { name: 'clientNames', label: 'Name', group: 'Clients' },
-    ],
     // Purchase + billing history for this service (outgoing = what we pay the vendor, incoming = what
     // we bill a client), each clickable; plus the reminders & notes attached to the service.
     relatedPanels: [
@@ -333,16 +341,6 @@ export const RESOURCES: CrudConfig[] = [
     columns: ['direction', 'vendor.vendorName', 'client.name', 'amount', 'dueDate', 'frequency', 'status'],
     badgeColumns: ['direction', 'status', 'frequency'],
     dateRanges: [{ from: 'periodFrom', to: 'periodTo' }],
-    // Cross-entity filters: a payment links a Vendor, a Service and a Client — drill into each.
-    filterRelations: [
-      { name: 'vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'vendor.status', label: 'Status', group: 'Vendor' },
-      { name: 'vendorService.serviceName', label: 'Name', group: 'Service' },
-      { name: 'vendorService.expiryDate', label: 'Expiry date', type: 'date', group: 'Service' },
-      { name: 'vendorService.status', label: 'Status', group: 'Service' },
-      { name: 'client.name', label: 'Name', group: 'Client' },
-      { name: 'client.status', label: 'Status', group: 'Client' },
-    ],
     relatedPanels: [
       { title: 'Reminders', kind: 'reminders' },
       { title: 'Activity', kind: 'activity' }, // change-log + notes in one Odoo-style timeline
@@ -394,11 +392,6 @@ export const RESOURCES: CrudConfig[] = [
     resource: 'jobbag.jobs', endpoint: '/jobbag/jobs',
     parentType: 'job',
     columns: ['uniqueId', 'title', 'vendorService.vendor.vendorName', 'client.name', 'projectStatus'],
-    filterRelations: [
-      { name: 'vendorService.serviceName', label: 'Name', group: 'Service' },
-      { name: 'vendorService.vendor.vendorName', label: 'Name', group: 'Vendor' },
-      { name: 'client.name', label: 'Name', group: 'Client' },
-    ],
     // A job is a task you track + get reminded about. Link a vendor-service (its vendor shows
     // automatically) and a client, write the action, then add reminders/notes from the detail view.
     relatedPanels: [
@@ -445,6 +438,7 @@ export const RESOURCES: CrudConfig[] = [
     module: 'jobbag', key: 'reminder-groups', title: 'Reminder Groups',
     // Reuses the jobbag.reminders permission (no separate RBAC resource).
     resource: 'jobbag.reminders', endpoint: '/jobbag/reminder-groups',
+    search: false,
     columns: ['name', 'description'],
     fields: [
       { name: 'name', label: 'Group name' },
