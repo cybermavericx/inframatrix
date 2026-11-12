@@ -5,6 +5,7 @@ import type { FieldDef } from '../modules/resources';
 import { RelatedPanel, type RelatedPanelDef } from './RelatedPanel';
 import { TagPanel } from './TagPanel';
 import { ActivityPanel } from './ActivityPanel';
+import { optionLabel } from '../lib/labels';
 
 type Row = Record<string, unknown>;
 
@@ -79,7 +80,7 @@ export function RecordDetail({
                       <div className="view-value" style={{ padding: '8px 11px', background: '#fff', color: '#1f2933', border: '1px solid var(--border)', borderRadius: 8, maxHeight: 380, overflow: 'auto' }} dangerouslySetInnerHTML={{ __html: String(val ?? '') || '—' }} />
                     ) : (
                       <div className="view-value" style={{ padding: '8px 11px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 8, minHeight: 18, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {fmt(val) || '—'}
+                        {(f.type === 'select' && val != null && val !== '' ? optionLabel(val) : fmt(val)) || '—'}
                       </div>
                     )}
                   </div>

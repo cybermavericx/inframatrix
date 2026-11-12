@@ -19,6 +19,7 @@ import { GroupedRows } from './GroupedRows';
 import { MassEditModal } from './MassEditModal';
 import { BY_PARAM, RESERVED_PARAMS } from '../lib/serverFilter';
 import { fmtDate } from '../lib/dates';
+import { optionLabel } from '../lib/labels';
 
 type Row = Record<string, unknown>;
 
@@ -220,6 +221,8 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const badgeCols = new Set(config.badgeColumns ?? []);
+  // dropdown columns show their readable label ("on_hold" → "On hold"); the stored value is unchanged
+  const selectCols = new Set(config.fields.filter((f) => f.type === 'select').map((f) => f.name));
 
   const [editing, setEditing] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
@@ -325,6 +328,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
   });
   // dates render in the house style "dd mmm yyyy"; fmtDate leaves non-dates unchanged
   const fmt = (v: unknown) => (typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v == null || typeof v === 'object' ? '' : fmtDate(String(v)));
+  const cellText = (col: string, v: unknown) => (selectCols.has(col) && v != null && v !== '' ? optionLabel(v) : fmt(v));
   const inputType = (t?: string) =>
     t === 'email' ? 'email' : t === 'datetime-local' ? 'datetime-local' : t === 'date' ? 'date' : t === 'number' ? 'number' : 'text';
 
@@ -381,8 +385,8 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
           {config.columns.map((c) => (
             <td key={c}>
               {badgeCols.has(c) && getPath(row, c) != null
-                ? <span className={badgeClass(String(getPath(row, c)))}>{fmt(getPath(row, c))}</span>
-                : fmt(getPath(row, c))}
+                ? <span className={badgeClass(String(getPath(row, c)))}>{cellText(c, getPath(row, c))}</span>
+                : cellText(c, getPath(row, c))}
             </td>
           ))}
           <td className="row-actions" onClick={(e) => e.stopPropagation()}>
@@ -462,7 +466,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
           <button className="btn btn-ghost" onClick={() => setExporting(true)}>Export</button>
           {canCreate && <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>Import</button>}
           <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={importXlsx} />
-          {canCreate && <button className="btn btn-primary" onClick={() => { setErr(''); setEditing({}); }}>+ New</button>}
+          {canCreate && <button className="btn btn-primary" data-shortcut="n" title="New (N)" onClick={() => { setErr(''); setEditing({}); }}>+ New</button>}
         </div>
       </div>
 
@@ -503,7 +507,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
                   ) : f.type === 'select' ? (
                     <select className="input" value={(editing[f.name] as string) ?? ''} onChange={(e) => setField(f, e.target.value)}>
                       <option value="">—</option>
-                      {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+                      {f.options?.map((o) => <option key={o} value={o}>{optionLabel(o)}</option>)}
                     </select>
                   ) : f.type === 'ref' ? (
                     <RefSelect field={f} value={editing[f.name]} onChange={(v) => setField(f, v)} />

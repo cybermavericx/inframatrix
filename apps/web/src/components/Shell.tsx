@@ -5,6 +5,8 @@ import { useAuth } from '../auth/AuthContext';
 import { navResourcesForModule } from '../modules/resources';
 import Security from '../pages/Security';
 import Footer from './Footer';
+import { useShortcuts } from '../hooks/useShortcuts';
+import { ShortcutsHelp } from './ShortcutsHelp';
 
 const LABELS: Record<string, string> = { infra: 'Infra', jobbag: 'JobBag' };
 
@@ -14,7 +16,10 @@ export default function Shell() {
   const { user, ability, logout } = useAuth();
   const loc = useLocation();
   const modules = user?.modules ?? [];
-  const seg = loc.pathname.split('/')[1] || modules[0] || '';
+  const shortcuts = useShortcuts(modules);
+  // "/" and "/dashboard" are the Dashboard: no module tab is active there and no module sidebar shows
+  const first = loc.pathname.split('/')[1] || '';
+  const seg = first === 'dashboard' ? '' : first;
   const isAdmin = seg === 'admin';
   const activeModule = isAdmin ? '' : seg;
   const canUsers = ability.can('read', 'core.users');
@@ -61,12 +66,17 @@ export default function Shell() {
 
       <div className="layout">
         <aside className="sidebar">
-          <div className="sidebar-title">{mfaBlocked ? 'Security' : isAdmin ? 'Administration' : (LABELS[activeModule] ?? activeModule)}</div>
+          <div className="sidebar-title">{mfaBlocked ? 'Security' : isAdmin ? 'Administration' : activeModule ? (LABELS[activeModule] ?? activeModule) : 'Dashboard'}</div>
           {!mfaBlocked && (isAdmin ? (
             <>
               <NavLink to="/admin/users" className={({ isActive }) => 'side-link' + (isActive ? ' active' : '')}>Users</NavLink>
               <NavLink to="/admin/activity" className={({ isActive }) => 'side-link' + (isActive ? ' active' : '')}>Activity Log</NavLink>
             </>
+          ) : !activeModule ? (
+            // Dashboard: the sidebar lists the user's modules instead of standing empty
+            modules.map((m) => (
+              <NavLink key={m} to={`/${m}`} className="side-link">{LABELS[m] ?? m}</NavLink>
+            ))
           ) : (
             sideResources.map((r) => (
               <NavLink key={r.key} to={`/${r.module}/${r.key}`} className={({ isActive }) => 'side-link' + (isActive ? ' active' : '')}>
@@ -101,6 +111,7 @@ export default function Shell() {
         </main>
       </div>
       <Footer />
+      {shortcuts.helpOpen && <ShortcutsHelp goto={shortcuts.goto} onClose={shortcuts.closeHelp} />}
     </div>
   );
 }
