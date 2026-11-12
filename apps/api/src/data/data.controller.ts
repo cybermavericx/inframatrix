@@ -583,6 +583,16 @@ export class DataController {
   // abusive query string rather than a meaningful UI limit (nothing here is naturally deeper than ~3).
   private static readonly MAX_FIELD_DEPTH = 4;
 
+  /** Existing values of a text field path for the Filter & group value box:
+   *  GET /data/infra.projects/values?path=environments.repoBranch&q=sta → { values: [...] } (≤ 20).
+   *  Same per-hop read rules as search; see SearchEngine.values. */
+  @Get(':resource/values')
+  values(@Param('resource') resource: string, @Query('path') path: string | undefined, @Query('q') q: string | undefined, @CurrentUser() user: AuthUser) {
+    const ability = buildAbility(user.permissions);
+    if (!ability.can('read', resource)) throw new ForbiddenException();
+    return new SearchEngine(this.dataSource, ability).values(this.repoFor(resource), path, q);
+  }
+
   @Get(':resource/fields')
   async fields(@Param('resource') resource: string, @Query('path') path: string | undefined, @CurrentUser() user: AuthUser) {
     const ability = buildAbility(user.permissions);

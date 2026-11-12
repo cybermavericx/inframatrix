@@ -5,6 +5,8 @@ import {
   isGroup, LIST_OPS, NO_VALUE, OPS, STATUSES,
   type FieldKind, type PickedField, type SearchGroup, type SearchRule, type ServerView,
 } from '../lib/serverFilter';
+import { ValueSuggest } from './ValueSuggest';
+import { optionLabel } from '../lib/labels';
 
 // The server-side Filter + Group-by panel (phase 4), one for every list. Driven by
 // GET /data/:resource/fields: every field of the record and of its related records (any depth the API
@@ -76,7 +78,19 @@ type RuleDraft = { path: string; label: string; kind: FieldKind; options?: strin
 type GroupDraft = { any: string; anyLabel: string; op: 'and' | 'or'; rules: RuleDraft[] };
 type Item = { rule: RuleDraft } | { group: GroupDraft };
 
-function ValueInput({ r, onChange }: { r: RuleDraft; onChange: (v: unknown) => void }) {
+/** Field kinds whose values are free text, so the value box offers the field's existing values. */
+const SUGGEST_KINDS = new Set<FieldKind>(['string', 'text', 'version']);
+
+/** "is any of" text box: keeps what you type (so a trailing comma survives) and saves the list. */
+function ListText({ resource, path, value, onChange, suggest }: { resource: string; path: string; value: string[]; onChange: (v: string[]) => void; suggest: boolean }) {
+  const [text, setText] = useState(value.join(', '));
+  const set = (t: string) => { setText(t); onChange(t.split(',').map((x) => x.trim()).filter(Boolean)); };
+  return suggest
+    ? <ValueSuggest resource={resource} path={path} value={text} onChange={set} list placeholder="value1, value2, …" />
+    : <input className="input" style={{ flex: 1 }} placeholder="value1, value2, …" value={text} onChange={(e) => set(e.target.value)} />;
+}
+
+function ValueInput({ r, resource, path, onChange }: { r: RuleDraft; resource: string; path: string; onChange: (v: unknown) => void }) {
   if (NO_VALUE.has(r.operator)) return <span className="muted" style={{ flex: 1, fontSize: 13 }}>— no value —</span>;
   const opts = r.operator === 'status' ? STATUSES : r.options;
   if (LIST_OPS.has(r.operator)) {
@@ -86,14 +100,13 @@ function ValueInput({ r, onChange }: { r: RuleDraft; onChange: (v: unknown) => v
         <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {opts.map((o) => (
             <label key={o} style={{ fontSize: 13, display: 'flex', gap: 4, alignItems: 'center' }}>
-              <input type="checkbox" checked={arr.includes(o)} onChange={(e) => onChange(e.target.checked ? [...arr, o] : arr.filter((x) => x !== o))} />{o}
+              <input type="checkbox" checked={arr.includes(o)} onChange={(e) => onChange(e.target.checked ? [...arr, o] : arr.filter((x) => x !== o))} />{optionLabel(o)}
             </label>
           ))}
         </div>
       );
     }
-    return <input className="input" style={{ flex: 1 }} placeholder="value1, value2, …" value={arr.join(', ')}
-      onChange={(e) => onChange(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} />;
+    return <ListText resource={resource} path={path} value={arr} onChange={onChange} suggest={SUGGEST_KINDS.has(r.kind)} />;
   }
   if (r.kind === 'boolean' || r.kind === 'computed') {
     return (
@@ -116,12 +129,16 @@ function ValueInput({ r, onChange }: { r: RuleDraft; onChange: (v: unknown) => v
   if (opts?.length && (r.operator === 'eq' || r.operator === 'neq')) {
     return (
       <select className="input" style={{ flex: 1 }} value={String(r.value ?? '')} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}
+        <option value="">—</option>{opts.map((o) => <option key={o} value={o}>{optionLabel(o)}</option>)}
       </select>
     );
   }
+  const placeholder = r.kind === 'version' ? 'e.g. 8.3.36 or 8.3' : '';
+  if (SUGGEST_KINDS.has(r.kind)) {
+    return <ValueSuggest resource={resource} path={path} value={String(r.value ?? '')} onChange={onChange} placeholder={placeholder} />;
+  }
   return <input className="input" style={{ flex: 1 }} type={type} value={String(r.value ?? '')}
-    placeholder={r.kind === 'version' ? 'e.g. 8.3.36 or 8.3' : ''} onChange={(e) => onChange(e.target.value)} />;
+    placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />;
 }
 
 function RuleRow({ resource, base, r, onChange, onRemove }: {
@@ -146,7 +163,7 @@ function RuleRow({ resource, base, r, onChange, onRemove }: {
           {ops.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
         </select>
       )}
-      {r.path && <ValueInput r={r} onChange={(value) => onChange({ ...r, value })} />}
+      {r.path && <ValueInput key={r.path + '|' + r.operator} r={r} resource={resource} path={join(base, r.path)} onChange={(value) => onChange({ ...r, value })} />}
       <button type="button" className="btn btn-ghost btn-sm" title="Remove" onClick={onRemove}>🗑</button>
     </div>
   );
