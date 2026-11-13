@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import type { FieldDef } from '../modules/resources';
 import { matchesCustom, type CustomFilterDef } from '../components/CustomFilterModal';
 import { fmtDate, isDateField } from '../lib/dates';
@@ -109,7 +109,7 @@ export function useListView({ rows: allRows, columns, columnLabels, fields, extr
 
   // Display value of a field for one row: relation label for refs, Yes/No for checkboxes, dd mmm yyyy
   // for dates — i.e. exactly what the user sees, so a rule filters on the visible value (not a raw id).
-  const displayValue = (row: Row, name: string): unknown => {
+  const displayValue = useCallback((row: Row, name: string): unknown => {
     const f = fieldByName.get(name);
     if (f?.type === 'ref') {
       const rel = getPath(row, name.replace(/Id$/, ''));
@@ -121,7 +121,7 @@ export function useListView({ rows: allRows, columns, columnLabels, fields, extr
     if (typeof v === 'boolean') return v ? 'Yes' : 'No';
     if (f && (f.type === 'date' || f.type === 'datetime-local')) return v ? fmtDate(String(v)) : v;
     return v;
-  };
+  }, [fieldByName]);
 
   const isDate = (name: string) => {
     const f = fieldByName.get(name);
@@ -148,16 +148,27 @@ export function useListView({ rows: allRows, columns, columnLabels, fields, extr
       m.set(f.name, [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
     }
     return m;
-    // displayValue is stable enough (depends on filterFields); recompute when fields or data change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterFields, allRows]);
+  }, [filterFields, allRows, displayValue]);
   const valuesFor = (name: string) => valueOptions.get(name) ?? [];
 
-  // Apply the Filter (on display values), then free-text search.
-  const cfFiltered = customFilter ? rows.filter((r) => matchesCustom((fn) => displayValue(r, fn), customFilter)) : rows;
-  const q = search.trim().toLowerCase();
+  // Apply the Filter (on display values), then free-text search. The search box updates at once; the
+  // filtering follows the deferred value so typing isn't held up by a large list. Each row's search
+  // text is built once per rows change (on the first search), not on every keystroke.
+  const cfFiltered = useMemo(
+    () => (customFilter ? rows.filter((r) => matchesCustom((fn) => displayValue(r, fn), customFilter)) : rows),
+    [rows, customFilter, displayValue],
+  );
+  const q = useDeferredValue(search).trim().toLowerCase();
   const textOf = searchText ?? defaultRowText;
-  const filtered = !q ? cfFiltered : cfFiltered.filter((r) => textOf(r).includes(q));
+  const searching = q !== '';
+  const textIndex = useMemo(
+    () => (searching ? new Map(rows.map((r) => [r, textOf(r)])) : null),
+    [rows, textOf, searching],
+  );
+  const filtered = useMemo(
+    () => (!q || !textIndex ? cfFiltered : cfFiltered.filter((r) => (textIndex.get(r) ?? textOf(r)).includes(q))),
+    [cfFiltered, q, textIndex, textOf],
+  );
 
   // optional sort by the clicked column (numbers numerically, dates/strings naturally, blanks last)
   const sorted = useMemo(() => {
