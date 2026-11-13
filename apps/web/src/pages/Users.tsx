@@ -13,6 +13,7 @@ import { ExportPicker } from '../components/ExportPicker';
 import { ActivityHistoryModal } from '../components/ActivityLogView';
 import type { FieldDef } from '../modules/resources';
 import type { RbacModule } from '../auth/types';
+import { CellText } from '../components/CellText';
 
 // Field defs for the users list's shared control panel (search + custom filter).
 const userFields: FieldDef[] = [
@@ -165,8 +166,8 @@ export default function Users() {
 
   const renderUser = (u: UserRow) => (
                 <tr key={u.id}>                  {canUpdate && <td><input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleUser(u.id)} /></td>}
-                  <td>{u.name}</td>
-                  <td>{u.email}</td>
+                  <td><CellText>{u.name}</CellText></td>
+                  <td><CellText>{u.email}</CellText></td>
                   <td>
                     {(u.modules ?? []).map((m) => (
                       <span key={m.key} className="badge badge-gray" style={{ marginRight: 4 }}>{m.key}</span>

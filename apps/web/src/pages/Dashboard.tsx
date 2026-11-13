@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
+import { CellText } from '../components/CellText';
 
 type Stats = {
   servers: { total: number; byStatus: Record<string, number>; byProvider: Record<string, number>; amc: number };
@@ -122,8 +123,8 @@ function UpcomingPaymentsCard({ payments, direction, title, accent, nav }: {
                     <td style={{ width: 96 }}>
                       <span className={'badge ' + (overdue ? 'badge-red' : 'badge-blue')}>{p.dueDate}</span>
                     </td>
-                    <td style={{ color: 'var(--primary-2)', fontWeight: 600 }}>{partyOf(p)}</td>
-                    <td className="muted" style={{ fontSize: 12.5 }}>{p.vendorService?.serviceName ?? p.forWhat ?? ''}</td>
+                    <td style={{ color: 'var(--primary-2)', fontWeight: 600 }}><CellText>{partyOf(p)}</CellText></td>
+                    <td className="muted" style={{ fontSize: 12.5 }}><CellText>{p.vendorService?.serviceName ?? p.forWhat ?? ''}</CellText></td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{p.amount != null ? `${Number(p.amount).toLocaleString()} ${p.currency ?? ''}` : '—'}</td>
                   </tr>
                 );
@@ -345,7 +346,7 @@ function ServerUsageCard({ rows, onServer }: { rows: Stats['serversUsage']; onSe
             const barColor = over ? ACCENT.red : tight ? ACCENT.amber : ACCENT.green;
             return (
               <tr key={r.id} onClick={onServer ? () => onServer(r.serverName) : undefined} style={onServer ? { cursor: 'pointer' } : undefined}>
-                <td style={onServer ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}>{r.serverName}</td>
+                <td style={onServer ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}><CellText>{r.serverName}</CellText></td>
                 <td>{r.provider ?? '—'}</td>
                 <td>{r.capacity ?? <span className="muted">not set</span>}</td>
                 <td>{r.used}</td>
@@ -379,7 +380,7 @@ function PocCard({ rows, onPoc }: { rows: Stats['byPoc']; onPoc?: (pocUserId: nu
           {rows.length === 0 && <tr><td colSpan={5} className="empty">No projects yet.</td></tr>}
           {rows.map((r) => (
             <tr key={r.pocUserId ?? 'none'} onClick={onPoc ? () => onPoc(r.pocUserId) : undefined} style={onPoc ? { cursor: 'pointer' } : undefined}>
-              <td style={onPoc ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}>{r.name}{r.email ? <span className="muted"> · {r.email}</span> : null}</td>
+              <td style={onPoc ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}><CellText>{r.name}{r.email ? <span className="muted"> · {r.email}</span> : null}</CellText></td>
               <td>{r.total}</td>
               <td><span className="badge badge-green">{r.published}</span></td>
               <td>{r.unpublished > 0 ? <span className="badge badge-amber">{r.unpublished}</span> : 0}</td>
@@ -418,7 +419,7 @@ function DrillPanel<T extends { projectId: number | null }>({
           {rows.map((r, i) => (
             <tr key={i} onClick={onRowClick ? () => onRowClick(r) : undefined} style={onRowClick ? { cursor: 'pointer' } : undefined}>
               {renderRow(r).map((v, j) => (
-                <td key={j} style={j === 0 && onRowClick ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}>{v}</td>
+                <td key={j} style={j === 0 && onRowClick ? { color: 'var(--primary-2)', fontWeight: 600 } : undefined}><CellText>{v}</CellText></td>
               ))}
             </tr>
           ))}

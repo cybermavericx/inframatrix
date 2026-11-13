@@ -7,6 +7,7 @@ import { ReminderModal } from './ReminderModal';
 import { NoteModal } from './NoteModal';
 import { ResolveModal } from './ResolveModal';
 import { ExportPicker } from './ExportPicker';
+import { CellText } from './CellText';
 
 type Row = Record<string, unknown>;
 
@@ -109,7 +110,7 @@ export function RelatedPanel({
                   <td key={c.name}>
                     {badges.has(c.name) && get(r, c.name) != null
                       ? <span className={badgeClass(String(get(r, c.name)))}>{cell(r, c.name)}</span>
-                      : cell(r, c.name)}
+                      : <CellText>{cell(r, c.name)}</CellText>}
                   </td>
                 ))}
                 <td style={{ textAlign: 'right' }}>
