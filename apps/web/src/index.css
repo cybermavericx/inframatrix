@@ -88,6 +88,8 @@ h3 { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
 .side-link:hover { background: var(--surface-2); color: #fff; box-shadow: var(--glow-cyan); }
 .side-link.active { background: linear-gradient(135deg, rgba(109, 92, 255, .25), rgba(0, 212, 255, .12)); color: #fff; border-color: rgba(109, 92, 255, .5); }
 .content { padding: 26px 30px; max-width: 1280px; }
+/* Wide lists (Projects) use more of a big screen; every other page keeps the 1280px reading width. */
+.content.content--wide { max-width: 1760px; }
 
 /* ---------- footer ---------- */
 .appfoot {
@@ -131,7 +133,9 @@ a.foot-org, .foot-link { text-decoration: none; }
 .table tbody tr:hover { background: linear-gradient(90deg, rgba(109, 92, 255, .1), transparent); }
 /* A list wider than the screen scrolls inside its card; the row buttons stay pinned in view at the right. */
 .card:has(> .table) { overflow-x: auto; }
-.table .row-actions { position: sticky; right: 0; background: var(--surface); white-space: nowrap; text-align: right; }
+.table .row-actions { position: sticky; right: 0; background: var(--surface); white-space: nowrap; text-align: right; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .4); }
+/* the pinned cell is opaque (rows scroll under it), so it takes the row's hover tint itself */
+.table tbody tr:hover .row-actions { background: linear-gradient(rgba(109, 92, 255, .06), rgba(109, 92, 255, .06)), var(--surface); }
 /* Form beside the list when there is room for both; on narrower screens the list gets the full width. */
 .grid-2.users-layout { align-items: start; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); }
 @media (max-width: 1280px) { .grid-2.users-layout { grid-template-columns: minmax(0, 1fr); } }

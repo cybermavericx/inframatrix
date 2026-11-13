@@ -85,7 +85,7 @@ export default function Shell() {
             ))
           ))}
         </aside>
-        <main className="content">
+        <main className={'content' + (loc.pathname.startsWith('/infra/projects') ? ' content--wide' : '')}>
           {mfaWarn && (
             <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #f59e0b' }}>
               <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
