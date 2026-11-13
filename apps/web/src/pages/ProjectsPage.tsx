@@ -13,6 +13,7 @@ import CrudPage from '../components/CrudPage';
 import { ENVIRONMENTS_CONFIG } from '../modules/resources';
 import { RecordDetail } from '../components/RecordDetail';
 import { ExportPicker } from '../components/ExportPicker';
+import { RowMenu } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
 import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
@@ -548,36 +549,33 @@ function ProjectsList() {
   const toggleAll = () => setSelected(allSel ? new Set() : new Set(allIds));
   const toggleOne = (id: string) => setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  // One project row — reused for the plain and the grouped (group-by) table bodies. The whole row
-  // opens the project (any cell that isn't its own control does it too, via the tr's onClick) — the
-  // Hosting cell keeps its own click as a shortcut straight into the Environments tab specifically;
-  // every other interactive cell (checkbox, View/Open/Del) stops propagation so it doesn't also fire
-  // the row-level open.
+  // One project row — reused for the plain and the grouped (group-by) table bodies. A mouse click
+  // anywhere on the row opens the project (the tr's onClick); the name is a button so the keyboard
+  // can do the same. Each hosting line opens the Environments tab; the checkbox, hosting cell and
+  // actions stop propagation so they don't also fire the row-level open.
   const renderProjectRow = (p: Row) => {
     const hosting = (p.hosting as HostingItem[] | undefined) ?? [];
     return (
     <tr key={String(p.id)} onClick={() => openProject({ ...p })} style={{ cursor: 'pointer' }}>
       <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(p.id))} onChange={() => toggleOne(String(p.id))} /></td>
-      <td>{String(p.name ?? '')}</td>
+      <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); openProject({ ...p }); }}>{String(p.name ?? '')}</button></td>
       <td>{optionLabel(p.status)}</td>
       <td>{String((p.poc as Row)?.name ?? '—')}</td>
       <td><span style={{ fontSize: 12.5 }}>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</span></td>
       <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{optionLabel(p.publishState ?? 'draft')}</span></td>
-      <td onClick={(e) => e.stopPropagation()}>
+      <td className="col-hosting" onClick={(e) => e.stopPropagation()}>
         {hosting.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>—</span> : (
-          <div title="Click to open the Environments tab" onClick={() => openProject({ ...p }, 'environments')}
-            style={{ display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
+          <div className="hosting-list">
             {hosting.map((h) => (
-              <div key={h.envId} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-                <span className="badge badge-blue" style={{ marginRight: 6 }}>{optionLabel(h.type)}</span>
-                {h.server ? <strong>{h.server}</strong> : <span className="muted">no server</span>}
-                {h.serverIp ? <span style={{ marginLeft: 6, fontFamily: 'monospace', color: 'var(--primary-2)' }}>{h.serverIp}</span> : null}
+              <div key={h.envId} className="hosting-item">
+                {/* line 1 opens the project's Environments tab (a button, so it is reachable by keyboard) */}
+                <button type="button" className="unstyled-btn hosting-line" title="Open the Environments tab" onClick={() => openProject({ ...p }, 'environments')}>
+                  <span className="badge badge-blue">{optionLabel(h.type)}</span>
+                  {h.server ? <strong>{h.server}</strong> : <span className="muted">no server</span>}
+                  {h.serverIp ? <span className="hosting-ip">{h.serverIp}</span> : null}
+                </button>
                 {h.url ? (
-                  <>
-                    <br />
-                    <a href={h.url.startsWith('http') ? h.url : `https://${h.url}`} target="_blank" rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()} style={{ color: 'var(--primary-2)' }}>{h.url}</a>
-                  </>
+                  <a className="hosting-url" href={h.url.startsWith('http') ? h.url : `https://${h.url}`} target="_blank" rel="noopener noreferrer" title={h.url}>{h.url}</a>
                 ) : null}
               </div>
             ))}
@@ -585,9 +583,13 @@ function ProjectsList() {
         )}
       </td>
       <td className="row-actions" onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setViewing({ ...p })}>View</button>
-        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} onClick={() => openProject({ ...p })}>Open</button>
-        {canDelete && <button className="btn btn-danger btn-sm" style={{ marginLeft: 6 }} onClick={() => { if (confirm('Delete this project?')) del.mutate(p.id); }}>Del</button>}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setViewing({ ...p })}>View</button>
+        {canDelete && (
+          <RowMenu label={`More actions for ${String(p.name ?? `#${String(p.id)}`)}`} items={[{
+            label: 'Delete', danger: true,
+            onSelect: () => { if (confirm(`Delete ${String(p.name ?? `#${String(p.id)}`)}? This cannot be undone.`)) del.mutate(p.id); },
+          }]} />
+        )}
       </td>
     </tr>
     );
@@ -679,7 +681,7 @@ function ProjectsList() {
                 {c.key === 'poc.name' && <th>Developers</th>}
               </Fragment>
             ))}
-            <th>Hosting</th>
+            <th className="col-hosting">Hosting</th>
             <th className="row-actions"></th></tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects yet.</td></tr>}

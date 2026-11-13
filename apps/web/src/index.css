@@ -136,6 +136,23 @@ a.foot-org, .foot-link { text-decoration: none; }
 .table .row-actions { position: sticky; right: 0; background: var(--surface); white-space: nowrap; text-align: right; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .4); }
 /* the pinned cell is opaque (rows scroll under it), so it takes the row's hover tint itself */
 .table tbody tr:hover .row-actions { background: linear-gradient(rgba(109, 92, 255, .06), rgba(109, 92, 255, .06)), var(--surface); }
+/* Projects list cells: the name is a button (keyboard opens the project), the Hosting cell gets room
+   for "badge server IP" with the IP never split, and a URL line that ends in … instead of wrapping. */
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.link-btn:hover { color: #fff; text-decoration: underline; }
+.unstyled-btn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.table .col-hosting { min-width: 300px; }
+.hosting-list { display: flex; flex-direction: column; gap: 6px; }
+.hosting-item { font-size: 12.5px; line-height: 1.5; min-width: 0; }
+.hosting-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.hosting-ip { font-family: monospace; color: var(--primary-2); white-space: nowrap; }
+.hosting-url { display: block; width: 0; min-width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--primary-2); }
+.row-menu-trigger { margin-left: 6px; min-width: 32px; }
+.row-menu { z-index: 70; min-width: 140px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.row-menu-item { background: none; border: 0; border-radius: 6px; padding: 8px 12px; font: inherit; font-size: 13px; color: #d7e0f7; text-align: left; cursor: pointer; }
+.row-menu-item:hover, .row-menu-item:focus-visible { background: var(--surface-2); color: #fff; }
+.row-menu-item.danger { color: var(--danger); }
+.row-menu-item.danger:hover, .row-menu-item.danger:focus-visible { background: rgba(255, 92, 122, .12); }
 /* Form beside the list when there is room for both; on narrower screens the list gets the full width. */
 .grid-2.users-layout { align-items: start; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); }
 @media (max-width: 1280px) { .grid-2.users-layout { grid-template-columns: minmax(0, 1fr); } }
