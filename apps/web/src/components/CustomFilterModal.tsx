@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FieldDef } from '../modules/resources';
+import { ValueSuggest } from './ValueSuggest';
 
 /** One condition: a field, an operator, and (for most operators) a value. */
 export type FilterRule = { field: string; op: string; value: string };
@@ -139,7 +140,7 @@ export function CustomFilterModal({
               const listOp = r.op === 'in' || r.op === 'not_in';
               const selectOpts = fd?.type === 'select' && fd.options?.length ? fd.options : null;
               const dateField = !listOp && isDate?.(r.field);
-              const suggestions = !listOp && !selectOpts ? (valuesFor?.(r.field) ?? []) : [];
+              const suggestions = !selectOpts ? (valuesFor?.(r.field) ?? []) : [];
               const q = pickerQ.trim().toLowerCase();
               return (
                 <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -189,14 +190,8 @@ export function CustomFilterModal({
                   ) : dateField ? (
                     <input className="input" type="date" style={{ flex: 1, minWidth: 160 }} value={r.value} onChange={(e) => setRule(i, { value: e.target.value })} />
                   ) : (
-                    <>
-                      <input className="input" style={{ flex: 1, minWidth: 160 }} list={suggestions.length ? `vals-${i}` : undefined}
-                        value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}
-                        placeholder={listOp ? 'value1, value2, …' : 'pick or type a value…'} />
-                      {suggestions.length > 0 && (
-                        <datalist id={`vals-${i}`}>{suggestions.slice(0, 500).map((o) => <option key={o} value={o} />)}</datalist>
-                      )}
-                    </>
+                    <ValueSuggest values={suggestions} list={listOp} value={r.value} onChange={(v) => setRule(i, { value: v })}
+                      placeholder={listOp ? 'value1, value2, …' : 'pick or type a value…'} />
                   )}
                   <button type="button" className="btn btn-ghost btn-sm" title="Remove rule" disabled={rules.length === 1} onClick={() => delRule(i)}>🗑</button>
                 </div>
