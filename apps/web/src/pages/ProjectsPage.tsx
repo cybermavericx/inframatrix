@@ -19,6 +19,7 @@ import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
 import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
 import { optionLabel } from '../lib/labels';
+import { runLimited } from '../lib/concurrency';
 
 type Row = Record<string, unknown>;
 
@@ -540,14 +541,16 @@ function ProjectsList() {
   const [exporting, setExporting] = useState(false);
   const bulk = useMutation({
     mutationFn: async ({ ids, kind }: { ids: string[]; kind: 'delete' | 'publish' | 'revert' }) => {
-      const errs: string[] = [];
-      for (const id of ids) {
+      // 5 at a time; errors are kept per id, in the order the ids were selected
+      const errs: (string | undefined)[] = [];
+      await runLimited(ids, 5, async (id, i) => {
         try {
           if (kind === 'delete') await api.delete(`/infra/projects/${id}`);
           else await api.post(`/infra/projects/${id}/${kind}`, {});
-        } catch (e) { errs.push(`#${id}: ${apiErr(e)}`); }
-      }
-      if (errs.length) throw new Error(errs.join('\n'));
+        } catch (e) { errs[i] = `#${id}: ${apiErr(e)}`; }
+      });
+      const failed = errs.filter((x): x is string => !!x);
+      if (failed.length) throw new Error(failed.join('\n'));
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['/infra/projects'] }); setSelected(new Set()); toast.notify('Done'); },
     onError: (e) => { qc.invalidateQueries({ queryKey: ['/infra/projects'] }); setSelected(new Set()); toast.error((e as Error).message); },
