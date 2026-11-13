@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 export type RowMenuItem = { label: string; danger?: boolean; onSelect: () => void };
 
 // "⋯" overflow menu for a list row. Opens on click (Enter/Space on the button), focuses the first
 // item; ↑/↓/Home/End move, Enter picks, Esc or Tab or a click outside closes, and focus goes back
-// to the button. The menu is position: fixed so the table card's overflow doesn't clip it; it
-// closes on scroll/resize instead of following the row.
+// to the button. The menu is rendered into document.body (a portal) with position: fixed, so neither
+// the table card's overflow nor the next row's pinned actions cell can cover it; it closes on
+// scroll/resize instead of following the row. React events from the portal still bubble through the
+// row's actions cell, so clicks in the menu don't open the row.
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   const [pos, setPos] = useState<CSSProperties | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -57,14 +60,15 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
     <>
       <button ref={trigger} type="button" className="btn btn-ghost btn-sm row-menu-trigger" aria-label={label}
         aria-haspopup="menu" aria-expanded={open} onClick={toggle}>⋯</button>
-      {open && (
+      {open && createPortal(
         <div ref={menu} role="menu" aria-label={label} className="row-menu" style={pos} onKeyDown={onMenuKey}>
           {items.map((it) => (
             <button key={it.label} type="button" role="menuitem" tabIndex={-1}
               className={'row-menu-item' + (it.danger ? ' danger' : '')}
               onClick={() => { close(true); it.onSelect(); }}>{it.label}</button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
