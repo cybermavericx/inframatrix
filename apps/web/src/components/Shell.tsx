@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -106,7 +107,9 @@ export default function Shell() {
               <Security />
             </>
           ) : (
-            <Outlet />
+            <Suspense fallback={<div className="muted" style={{ padding: 20 }}>Loading…</div>}>
+              <Outlet />
+            </Suspense>
           )}
         </main>
       </div>
