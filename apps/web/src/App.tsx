@@ -1,18 +1,19 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { lazy, type ReactNode } from 'react';
 import { useAuth } from './auth/AuthContext';
 import Login from './pages/Login';
 import AcceptInvite from './pages/AcceptInvite';
 import ResetPassword from './pages/ResetPassword';
 import Shell from './components/Shell';
-import ModuleHome from './pages/ModuleHome';
-import Dashboard from './pages/Dashboard';
-import Users from './pages/Users';
-import Security from './pages/Security';
-import ProjectsPage from './pages/ProjectsPage';
-import NotificationsPage from './pages/NotificationsPage';
-import ActivityLogPage from './pages/ActivityLogPage';
-import CrudPage from './components/CrudPage';
+// Pages load on first visit (Shell shows "Loading…" meanwhile); Login and Shell stay in the main chunk.
+const ModuleHome = lazy(() => import('./pages/ModuleHome'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Users = lazy(() => import('./pages/Users'));
+const Security = lazy(() => import('./pages/Security'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const ActivityLogPage = lazy(() => import('./pages/ActivityLogPage'));
+const CrudPage = lazy(() => import('./components/CrudPage'));
 import { RESOURCES } from './modules/resources';
 
 function RequireAuth({ children }: { children: ReactNode }) {

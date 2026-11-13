@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -13,11 +13,13 @@ import CrudPage from '../components/CrudPage';
 import { ENVIRONMENTS_CONFIG } from '../modules/resources';
 import { RecordDetail } from '../components/RecordDetail';
 import { ExportPicker } from '../components/ExportPicker';
+import { RowMenu } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
 import type { RelatedPanelDef } from '../components/RelatedPanel';
 import type { FieldDef } from '../modules/resources';
 import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
 import { optionLabel } from '../lib/labels';
+import { runLimited } from '../lib/concurrency';
 
 type Row = Record<string, unknown>;
 
@@ -48,6 +50,13 @@ const PROJECT_COLS = [
   { key: 'publishState', label: 'State' },
 ] as const;
 const PROJECT_COL_LABELS: Record<string, string> = Object.fromEntries(PROJECT_COLS.map((c) => [c.key, c.label]));
+// Module-level so useListView gets the same arrays every render and its memos hold.
+const PROJECT_LIST_FIELDS: FieldDef[] = projectFields.filter((f) => f.name !== 'developerIds');
+// URL column filter (?publishState=ready …): array-aware, since envTypes etc. are arrays per project.
+const matchesFilter = (val: unknown, want: string) => (Array.isArray(val)
+  ? val.some((x) => String(x).toLowerCase() === want.toLowerCase())
+  : String(val ?? '').toLowerCase() === want.toLowerCase());
+const PROJECT_COL_KEYS: string[] = PROJECT_COLS.map((c) => c.key);
 // Per-environment hosting summary the list API now attaches to each project (server name + IP),
 // so "where / how is this hosted" is answerable from the list without drilling into each server.
 type HostingItem = { envId: number; type: string; url: string | null; server: string | null; serverIp: string | null; provider: string | null };
@@ -444,6 +453,57 @@ export default function ProjectsPage() {
 }
 
 /* ---------------- Projects list (one row per project) ---------------- */
+/* One project row — reused for the plain and the grouped (group-by) table bodies. memo + stable
+   callbacks + `selected` as a boolean mean ticking one checkbox re-renders that row only. A mouse click
+   anywhere on the row opens the project (the tr's onClick); the name is a button so the keyboard can
+   do the same. Each hosting line opens the Environments tab; the checkbox, hosting cell and actions
+   stop propagation so they don't also fire the row-level open. */
+type OpenTab = 'overview' | 'environments';
+const ProjectRow = memo(function ProjectRow({ p, selected, canDelete, onToggle, onOpen, onView, onDelete }: {
+  p: Row; selected: boolean; canDelete: boolean;
+  onToggle: (id: string) => void; onOpen: (row: Row, tab?: OpenTab) => void; onView: (row: Row) => void; onDelete: (row: Row) => void;
+}) {
+  const hosting = (p.hosting as HostingItem[] | undefined) ?? [];
+  return (
+    <tr onClick={() => onOpen(p)} style={{ cursor: 'pointer' }}>
+      <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected} onChange={() => onToggle(String(p.id))} /></td>
+      <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{String(p.name ?? '')}</button></td>
+      <td>{optionLabel(p.status)}</td>
+      <td>{String((p.poc as Row)?.name ?? '—')}</td>
+      <td><span style={{ fontSize: 12.5 }}>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</span></td>
+      <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{optionLabel(p.publishState ?? 'draft')}</span></td>
+      <td className="col-hosting" onClick={(e) => e.stopPropagation()}>
+        {hosting.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>—</span> : (
+          <div className="hosting-list">
+            {hosting.map((h) => (
+              <div key={h.envId} className="hosting-item">
+                {/* line 1 opens the project's Environments tab (a button, so it is reachable by keyboard) */}
+                <button type="button" className="unstyled-btn hosting-line" title="Open the Environments tab" onClick={() => onOpen(p, 'environments')}>
+                  <span className="badge badge-blue">{optionLabel(h.type)}</span>
+                  {h.server ? <strong>{h.server}</strong> : <span className="muted">no server</span>}
+                  {h.serverIp ? <span className="hosting-ip">{h.serverIp}</span> : null}
+                </button>
+                {h.url ? (
+                  <a className="hosting-url" href={h.url.startsWith('http') ? h.url : `https://${h.url}`} target="_blank" rel="noopener noreferrer" title={h.url}>{h.url}</a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </td>
+      <td className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onView(p)}>View</button>
+        {canDelete && (
+          <RowMenu label={`More actions for ${String(p.name ?? `#${String(p.id)}`)}`} items={[{
+            label: 'Delete', danger: true,
+            onSelect: () => onDelete(p),
+          }]} />
+        )}
+      </td>
+    </tr>
+  );
+});
+
 function ProjectsList() {
   const { ability } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -457,7 +517,7 @@ function ProjectsList() {
   const [editorTab, setEditorTab] = useState<'overview' | 'environments'>('overview');
   const [viewing, setViewing] = useState<Row | null>(null);
   // Open the project editor (closing any open View), optionally straight on the Environments tab.
-  const openProject = (row: Row, tab: 'overview' | 'environments' = 'overview') => { setEditorTab(tab); setEditing(row); setViewing(null); };
+  const openProject = useCallback((row: Row, tab: OpenTab = 'overview') => { setEditorTab(tab); setEditing({ ...row }); setViewing(null); }, []);
 
   const { data: rows = [] } = useQuery({
     queryKey: ['/infra/projects'],
@@ -481,14 +541,16 @@ function ProjectsList() {
   const [exporting, setExporting] = useState(false);
   const bulk = useMutation({
     mutationFn: async ({ ids, kind }: { ids: string[]; kind: 'delete' | 'publish' | 'revert' }) => {
-      const errs: string[] = [];
-      for (const id of ids) {
+      // 5 at a time; errors are kept per id, in the order the ids were selected
+      const errs: (string | undefined)[] = [];
+      await runLimited(ids, 5, async (id, i) => {
         try {
           if (kind === 'delete') await api.delete(`/infra/projects/${id}`);
           else await api.post(`/infra/projects/${id}/${kind}`, {});
-        } catch (e) { errs.push(`#${id}: ${apiErr(e)}`); }
-      }
-      if (errs.length) throw new Error(errs.join('\n'));
+        } catch (e) { errs[i] = `#${id}: ${apiErr(e)}`; }
+      });
+      const failed = errs.filter((x): x is string => !!x);
+      if (failed.length) throw new Error(failed.join('\n'));
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['/infra/projects'] }); setSelected(new Set()); toast.notify('Done'); },
     onError: (e) => { qc.invalidateQueries({ queryKey: ['/infra/projects'] }); setSelected(new Set()); toast.error((e as Error).message); },
@@ -523,75 +585,38 @@ function ProjectsList() {
   };
 
   const [massEditing, setMassEditing] = useState(false);
-  if (!canRead) return <div className="card"><div className="card-body">You do not have access to Projects.</div></div>;
 
   // Same shared list control panel as every other screen — only the columns/fields differ.
   // publishState defaults to 'draft' (some rows have none) so filter/sort/group match what's shown.
-  const listRows = rows.map((r) => ({ ...r, publishState: r.publishState ?? 'draft' }));
+  const listRows = useMemo(() => rows.map((r) => ({ ...r, publishState: r.publishState ?? 'draft' })), [rows]);
 
   // Optional column filters from the URL (e.g. /infra/projects?publishState=ready) — used by dashboard
   // drill-downs. Mirrors CrudPage's same mechanism, but array-aware (envTypes etc. are arrays per project).
-  const filterEntries = [...searchParams.entries()].filter(([k]) => !RESERVED_PARAMS.has(k));
-  const matchesFilter = (val: unknown, want: string) => Array.isArray(val)
-    ? val.some((x) => String(x).toLowerCase() === want.toLowerCase())
-    : String(val ?? '').toLowerCase() === want.toLowerCase();
-  const urlFiltered = filterEntries.length
+  const filterEntries = useMemo(() => [...searchParams.entries()].filter(([k]) => !RESERVED_PARAMS.has(k)), [searchParams]);
+  const urlFiltered = useMemo(() => (filterEntries.length
     ? listRows.filter((r) => filterEntries.every(([k, v]) => matchesFilter(getPath(r, k), v)))
-    : listRows;
+    : listRows), [listRows, filterEntries]);
 
-  const view = useListView({ rows: urlFiltered, columns: PROJECT_COLS.map((c) => c.key), columnLabels: PROJECT_COL_LABELS, fields: projectFields.filter((f) => f.name !== 'developerIds'), extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
+  const view = useListView({ rows: urlFiltered, columns: PROJECT_COL_KEYS, columnLabels: PROJECT_COL_LABELS, fields: PROJECT_LIST_FIELDS, extraFilterFields: PROJECT_FILTER_EXTRAS, resource: 'infra.projects' });
   const { sort, onSort, groups } = view;
   const filtered = view.rows;
 
   const allIds = filtered.map((r) => String(r.id));
   const allSel = allIds.length > 0 && allIds.every((id) => selected.has(id));
   const toggleAll = () => setSelected(allSel ? new Set() : new Set(allIds));
-  const toggleOne = (id: string) => setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleOne = useCallback((id: string) => setSelected((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
 
-  // One project row — reused for the plain and the grouped (group-by) table bodies. The whole row
-  // opens the project (any cell that isn't its own control does it too, via the tr's onClick) — the
-  // Hosting cell keeps its own click as a shortcut straight into the Environments tab specifically;
-  // every other interactive cell (checkbox, View/Open/Del) stops propagation so it doesn't also fire
-  // the row-level open.
-  const renderProjectRow = (p: Row) => {
-    const hosting = (p.hosting as HostingItem[] | undefined) ?? [];
-    return (
-    <tr key={String(p.id)} onClick={() => openProject({ ...p })} style={{ cursor: 'pointer' }}>
-      <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(String(p.id))} onChange={() => toggleOne(String(p.id))} /></td>
-      <td>{String(p.name ?? '')}</td>
-      <td>{optionLabel(p.status)}</td>
-      <td>{String((p.poc as Row)?.name ?? '—')}</td>
-      <td><span style={{ fontSize: 12.5 }}>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</span></td>
-      <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{optionLabel(p.publishState ?? 'draft')}</span></td>
-      <td onClick={(e) => e.stopPropagation()}>
-        {hosting.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>—</span> : (
-          <div title="Click to open the Environments tab" onClick={() => openProject({ ...p }, 'environments')}
-            style={{ display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
-            {hosting.map((h) => (
-              <div key={h.envId} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-                <span className="badge badge-blue" style={{ marginRight: 6 }}>{optionLabel(h.type)}</span>
-                {h.server ? <strong>{h.server}</strong> : <span className="muted">no server</span>}
-                {h.serverIp ? <span style={{ marginLeft: 6, fontFamily: 'monospace', color: 'var(--primary-2)' }}>{h.serverIp}</span> : null}
-                {h.url ? (
-                  <>
-                    <br />
-                    <a href={h.url.startsWith('http') ? h.url : `https://${h.url}`} target="_blank" rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()} style={{ color: 'var(--primary-2)' }}>{h.url}</a>
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </td>
-      <td className="row-actions" onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setViewing({ ...p })}>View</button>
-        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} onClick={() => openProject({ ...p })}>Open</button>
-        {canDelete && <button className="btn btn-danger btn-sm" style={{ marginLeft: 6 }} onClick={() => { if (confirm('Delete this project?')) del.mutate(p.id); }}>Del</button>}
-      </td>
-    </tr>
-    );
-  };
+  const onView = useCallback((row: Row) => setViewing({ ...row }), []);
+  const delMutate = del.mutate;
+  const onDelete = useCallback((row: Row) => {
+    if (confirm(`Delete ${String(row.name ?? `#${String(row.id)}`)}? This cannot be undone.`)) delMutate(row.id);
+  }, [delMutate]);
+  const renderProjectRow = useCallback((p: Row) => (
+    <ProjectRow key={String(p.id)} p={p} selected={selected.has(String(p.id))} canDelete={canDelete}
+      onToggle={toggleOne} onOpen={openProject} onView={onView} onDelete={onDelete} />
+  ), [selected, canDelete, toggleOne, openProject, onView, onDelete]);
+
+  if (!canRead) return <div className="card"><div className="card-body">You do not have access to Projects.</div></div>;
 
   return (
     <div>
@@ -624,7 +649,7 @@ function ProjectsList() {
 
       {massEditing && (
         <MassEditModal resource="infra.projects" ids={[...selected].map(Number)}
-          fields={projectFields.filter((f) => f.name !== 'developerIds')}
+          fields={PROJECT_LIST_FIELDS}
           invalidate={[['/infra/projects']]} onClose={() => setMassEditing(false)}
           onDone={() => { setMassEditing(false); setSelected(new Set()); }} />
       )}
@@ -679,7 +704,7 @@ function ProjectsList() {
                 {c.key === 'poc.name' && <th>Developers</th>}
               </Fragment>
             ))}
-            <th>Hosting</th>
+            <th className="col-hosting">Hosting</th>
             <th className="row-actions"></th></tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td colSpan={PROJECT_COLSPAN} className="empty">No projects yet.</td></tr>}
