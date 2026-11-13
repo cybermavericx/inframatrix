@@ -2,13 +2,31 @@ import { useEffect, useId, useState, type KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
-// Text input with suggestions from the field's existing values (GET /data/:resource/values), for the
-// Filter & group value box. Asks 200 ms after typing stops and caches per text, so typing doesn't
-// flood the server. ↑/↓ move, Enter picks, Esc closes. In list mode ("value1, value2") it completes
-// the value after the last comma.
+// Text input with suggestions from the field's existing values. Two sources:
+// - server (resource + path): GET /data/:resource/values, for the Filter & group value box. Asks
+//   200 ms after typing stops and caches per text, so typing doesn't flood the server.
+// - local (values): a list the page already has (the Quick filter's values from the loaded rows),
+//   matched here the same way: contains the text, case-insensitive, values starting with it first, ≤ 20.
+// ↑/↓ move, Enter picks, Esc closes. In list mode ("value1, value2") it completes the value after
+// the last comma.
 
-export function ValueSuggest({ resource, path, value, onChange, list = false, placeholder, type = 'text' }: {
-  resource: string; path: string; value: string; onChange: (v: string) => void; list?: boolean; placeholder?: string; type?: string;
+const MAX_SUGGESTIONS = 20;
+
+function matchLocal(values: string[], q: string): string[] {
+  const t = q.trim().toLowerCase();
+  if (!t) return values.slice(0, MAX_SUGGESTIONS);
+  const starts: string[] = [], contains: string[] = [];
+  for (const v of values) {
+    const l = v.toLowerCase();
+    if (l.startsWith(t)) starts.push(v);
+    else if (l.includes(t)) contains.push(v);
+    if (starts.length >= MAX_SUGGESTIONS) break;
+  }
+  return [...starts, ...contains].slice(0, MAX_SUGGESTIONS);
+}
+
+export function ValueSuggest({ resource, path, values, value, onChange, list = false, placeholder, type = 'text' }: {
+  resource?: string; path?: string; values?: string[]; value: string; onChange: (v: string) => void; list?: boolean; placeholder?: string; type?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -20,10 +38,10 @@ export function ValueSuggest({ resource, path, value, onChange, list = false, pl
   const { data } = useQuery({
     queryKey: ['field-values', resource, path, q],
     queryFn: async () => (await api.get(`/data/${resource}/values`, { params: { path, q } })).data as { values: string[] },
-    enabled: open && !!path,
+    enabled: open && !values && !!resource && !!path,
     staleTime: 60_000,
   });
-  const options = (data?.values ?? []).filter((v) => v !== token);
+  const options = (values ? matchLocal(values, token) : (data?.values ?? [])).filter((v) => v !== token);
 
   const pick = (v: string) => {
     if (list) {
