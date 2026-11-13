@@ -136,6 +136,10 @@ a.foot-org, .foot-link { text-decoration: none; }
 .table .row-actions { position: sticky; right: 0; background: var(--surface); white-space: nowrap; text-align: right; box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .4); }
 /* the pinned cell is opaque (rows scroll under it), so it takes the row's hover tint itself */
 .table tbody tr:hover .row-actions { background: linear-gradient(rgba(109, 92, 255, .06), rgba(109, 92, 255, .06)), var(--surface); }
+/* List cell text (CellText): wraps between words at ~36ch instead of widening the column. A value with
+   no spaces may break anywhere (so it can't force the table wider and push columns under the pinned
+   actions); min-width keeps the column from being squeezed below 10 characters. */
+.cell-text { display: block; min-width: 10ch; max-width: 36ch; overflow-wrap: anywhere; }
 /* Projects list cells: the name is a button (keyboard opens the project), the Hosting cell gets room
    for "badge server IP" with the IP never split, and a URL line that ends in … instead of wrapping. */
 .link-btn { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }

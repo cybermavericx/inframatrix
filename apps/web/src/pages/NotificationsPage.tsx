@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
+import { CellText } from '../components/CellText';
 
 type Row = Record<string, unknown>;
 const fmt = (v: unknown) => (v == null ? '' : String(v));
@@ -50,8 +51,8 @@ export default function NotificationsPage() {
             {rows.map((n) => (
               <tr key={String(n.id)}>
                 <td><span className="badge badge-blue">{fmt(n.source)}</span></td>
-                <td>{fmt(n.subject)}</td>
-                <td>{fmt(n.recipient)}</td>
+                <td><CellText>{fmt(n.subject)}</CellText></td>
+                <td><CellText>{fmt(n.recipient)}</CellText></td>
                 <td><span className={'badge ' + (n.status === 'SENT' ? 'badge-green' : 'badge-red')}>{fmt(n.status)}</span></td>
                 <td>{fmt(n.sentAt)}</td>
               </tr>

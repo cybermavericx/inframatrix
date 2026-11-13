@@ -20,6 +20,7 @@ import { MassEditModal } from './MassEditModal';
 import { BY_PARAM, RESERVED_PARAMS } from '../lib/serverFilter';
 import { fmtDate } from '../lib/dates';
 import { optionLabel } from '../lib/labels';
+import { CellText } from './CellText';
 
 type Row = Record<string, unknown>;
 
@@ -386,7 +387,7 @@ export default function CrudPage({ config }: { config: CrudConfig }) {
             <td key={c}>
               {badgeCols.has(c) && getPath(row, c) != null
                 ? <span className={badgeClass(String(getPath(row, c)))}>{cellText(c, getPath(row, c))}</span>
-                : cellText(c, getPath(row, c))}
+                : <CellText>{cellText(c, getPath(row, c))}</CellText>}
             </td>
           ))}
           <td className="row-actions" onClick={(e) => e.stopPropagation()}>

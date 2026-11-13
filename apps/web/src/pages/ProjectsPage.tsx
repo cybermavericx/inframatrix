@@ -20,6 +20,7 @@ import type { FieldDef } from '../modules/resources';
 import { computeFieldFlags, computeIntegrationFlags, fixedList, type IntegrationTypeField } from '../lib/integrationFlags';
 import { optionLabel } from '../lib/labels';
 import { runLimited } from '../lib/concurrency';
+import { CellText } from '../components/CellText';
 
 type Row = Record<string, unknown>;
 
@@ -467,10 +468,10 @@ const ProjectRow = memo(function ProjectRow({ p, selected, canDelete, onToggle, 
   return (
     <tr onClick={() => onOpen(p)} style={{ cursor: 'pointer' }}>
       <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected} onChange={() => onToggle(String(p.id))} /></td>
-      <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{String(p.name ?? '')}</button></td>
+      <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); onOpen(p); }}><CellText>{String(p.name ?? '')}</CellText></button></td>
       <td>{optionLabel(p.status)}</td>
-      <td>{String((p.poc as Row)?.name ?? '—')}</td>
-      <td><span style={{ fontSize: 12.5 }}>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</span></td>
+      <td><CellText>{String((p.poc as Row)?.name ?? '—')}</CellText></td>
+      <td><span style={{ fontSize: 12.5 }}><CellText>{((p.developerNames as string[] | undefined) ?? []).join(', ') || '—'}</CellText></span></td>
       <td><span className={stateBadge(String(p.publishState ?? 'draft'))}>{optionLabel(p.publishState ?? 'draft')}</span></td>
       <td className="col-hosting" onClick={(e) => e.stopPropagation()}>
         {hosting.length === 0 ? <span className="muted" style={{ fontSize: 12.5 }}>—</span> : (
