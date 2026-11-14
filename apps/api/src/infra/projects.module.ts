@@ -201,7 +201,7 @@ export class ProjectsService extends CrudService<Project> {
     return this.update(id, { isPublished: false } as never);
   }
   // Deleting a project removes its environments + integrations automatically via DB onDelete:CASCADE
-  // (hard delete). No app-level cascade needed.
+  // (hard delete). Their notes and WAITING reminders are removed by CrudService.remove.
 }
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
