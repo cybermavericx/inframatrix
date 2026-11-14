@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DeepPartial, FindOptionsWhere, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { recordLifecycle, recordUpdate } from '../audit/audit.util';
+import { removeAttached } from './attached-records';
 
 /** A pair of date columns where `to` must be on/after `from` (e.g. amcFrom→amcTo). */
 export type DateRange = { from: string; to: string; label?: string };
@@ -143,11 +144,22 @@ export class CrudService<T extends { id: number }> {
     // HARD delete: the row is removed and DB foreign keys cascade (e.g. project → environments →
     // integrations) or SET NULL as declared. Integer ids are never reused — MySQL persists the
     // AUTO_INCREMENT counter across deletes/restarts — so no tombstone is needed to keep ids unique.
-    if (this.auditType) {
-      const existing = await this.repo.findOne({ where: { id } as FindOptionsWhere<T> });
-      if (existing) await recordLifecycle(this.repo as never, this.auditType, existing as Record<string, unknown>, 'deleted');
+    // Notes and WAITING reminders on the record (and on the children the DB cascades) are deleted in
+    // the same transaction, with their text kept in the change-log (see removeAttached).
+    const auditType = this.auditType;
+    const existing = auditType
+      ? await this.repo.findOne({ where: { id } as FindOptionsWhere<T> })
+      : null;
+    if (auditType && existing) {
+      await recordLifecycle(this.repo, auditType, existing, 'deleted');
     }
-    await this.repo.delete(id);
+    await this.repo.manager.transaction(async (m) => {
+      const repo = m.getRepository(this.repo.target);
+      if (auditType && existing) {
+        await removeAttached(m, auditType, repo, existing);
+      }
+      await repo.delete(id);
+    });
     return { success: true };
   }
 }
