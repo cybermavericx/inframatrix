@@ -46,10 +46,12 @@ export default function App() {
         <Route path="infra/projects" element={<ProjectsPage />} />
         <Route path="infra/environments" element={<EnvironmentsRedirect />} />
         <Route path="jobbag/notifications" element={<NotificationsPage />} />
+        {/* key per resource: each list gets its own CrudPage, so search / Quick filter / group-by /
+            selection don't carry over when you switch menu items */}
         {RESOURCES
           .filter((r) => !(r.module === 'infra' && (r.key === 'projects' || r.key === 'environments')) && !(r.module === 'jobbag' && r.key === 'notifications'))
           .map((r) => (
-            <Route key={r.endpoint} path={`${r.module}/${r.key}`} element={<CrudPage config={r} />} />
+            <Route key={r.endpoint} path={`${r.module}/${r.key}`} element={<CrudPage key={r.endpoint} config={r} />} />
           ))}
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
