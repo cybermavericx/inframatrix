@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { fmtDate, isDateField } from '../lib/dates';
 import { ReminderModal } from './ReminderModal';
-import { NoteModal } from './NoteModal';
 import { ResolveModal } from './ResolveModal';
 import { ExportPicker } from './ExportPicker';
 import { CellText } from './CellText';
@@ -16,10 +15,11 @@ type Row = Record<string, unknown>;
  *  the generic "add anything against anything + see it listed underneath" mechanism. */
 export interface RelatedPanelDef {
   title: string;
-  /** 'reminders' / 'notes' use the polymorphic parentType+parentId match; 'filter' matches an FK.
+  /** 'reminders' use the polymorphic parentType+parentId match; 'filter' matches an FK. Notes live in
+   *  the 'activity' timeline (ActivityPanel), which loads only this record's notes.
    *  'tags' renders the reusable tag/flag chips; 'activity' renders the Odoo-style change-log + notes
    *  timeline. (tags/activity are dispatched by RecordDetail to their own components.) */
-  kind: 'reminders' | 'notes' | 'filter' | 'tags' | 'activity';
+  kind: 'reminders' | 'filter' | 'tags' | 'activity';
   endpoint?: string;        // for kind 'filter'
   filterKey?: string;       // for kind 'filter': child field equal to the parent row id
   columns?: { name: string; label: string }[]; // for kind 'filter'
@@ -45,7 +45,6 @@ const REMINDER_COLS = [
   { name: 'title', label: 'title' }, { name: 'scheduledDateTime', label: 'when' },
   { name: 'recurrence', label: 'repeat' }, { name: 'status', label: 'status' },
 ];
-const NOTE_COLS = [{ name: 'body', label: 'note' }, { name: 'authorName', label: 'by' }, { name: 'createdAt', label: 'added' }];
 
 export function RelatedPanel({
   panel, parentType, parentId, parentLabel, canEdit,
@@ -57,7 +56,7 @@ export function RelatedPanel({
   canEdit: boolean;
 }) {
   const navigate = useNavigate();
-  const endpoint = panel.kind === 'reminders' ? '/jobbag/reminders' : panel.kind === 'notes' ? '/jobbag/notes' : panel.endpoint!;
+  const endpoint = panel.kind === 'reminders' ? '/jobbag/reminders' : panel.endpoint!;
   const { data = [], refetch } = useQuery({
     queryKey: [endpoint],
     queryFn: async () => (await api.get(endpoint)).data as Row[],
@@ -72,7 +71,7 @@ export function RelatedPanel({
       ? String(get(r, panel.filterKey!) ?? '') === String(parentId)
       : r.parentType === parentType && Number(r.parentId) === Number(parentId),
   );
-  const cols = panel.kind === 'reminders' ? REMINDER_COLS : panel.kind === 'notes' ? NOTE_COLS : (panel.columns ?? []);
+  const cols = panel.kind === 'reminders' ? REMINDER_COLS : (panel.columns ?? []);
   const badges = new Set(panel.kind === 'reminders' ? ['status'] : (panel.badgeCols ?? []));
   const cell = (r: Row, name: string) => {
     const v = get(r, name);
@@ -91,9 +90,9 @@ export function RelatedPanel({
             Export
           </button>
         )}
-        {canEdit && (panel.kind === 'reminders' || panel.kind === 'notes') && (
+        {canEdit && panel.kind === 'reminders' && (
           <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setAdding(true)}>
-            + Add {panel.kind === 'reminders' ? 'reminder' : 'note'}
+            + Add reminder
           </button>
         )}
       </div>
@@ -129,9 +128,6 @@ export function RelatedPanel({
 
       {adding && panel.kind === 'reminders' && (
         <ReminderModal parentType={parentType} parentId={parentId} parentLabel={parentLabel} onClose={() => setAdding(false)} onSaved={() => refetch()} />
-      )}
-      {adding && panel.kind === 'notes' && (
-        <NoteModal parentType={parentType} parentId={parentId} parentLabel={parentLabel} onClose={() => setAdding(false)} onSaved={() => refetch()} />
       )}
       {resolving && (
         <ResolveModal reminderId={resolving.id as number} title={(resolving.title as string) ?? undefined}
