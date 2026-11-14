@@ -12,6 +12,7 @@ import { BY_PARAM, RESERVED_PARAMS } from '../lib/serverFilter';
 import CrudPage from '../components/CrudPage';
 import { ENVIRONMENTS_CONFIG } from '../modules/resources';
 import { RecordDetail } from '../components/RecordDetail';
+import { ActivityPanel } from '../components/ActivityPanel';
 import { ExportPicker } from '../components/ExportPicker';
 import { RowMenu } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
@@ -92,12 +93,11 @@ const envFields: FieldDef[] = [
   { name: 'checklistSubmittedDate', label: 'Checklist submitted date', type: 'date' },
   { name: 'checklistSubmittedVersion', label: 'Checklist version' },
 ];
-// Reminders/notes can be attached to a project / environment (the "+ Add anything" pattern) — shown
-// in their read-only View. The parentType matches the polymorphic reminder/note records.
+// Reminders can be attached to a project / environment (the "+ Add anything" pattern) — shown in their
+// read-only View. Notes are in the Activity timeline (also in the editors).
 const ENV_PANELS: RelatedPanelDef[] = [
   { title: 'Tags', kind: 'tags' },
   { title: 'Reminders', kind: 'reminders' },
-  { title: 'Notes', kind: 'notes' },
   { title: 'Activity', kind: 'activity' },
 ];
 const PROJECT_PANELS: RelatedPanelDef[] = ENV_PANELS;
@@ -243,6 +243,8 @@ function EnvironmentsManager({ projectId, canEdit }: { projectId: number; canEdi
   const toast = useToast();
   const [editing, setEditing] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
+  const { ability } = useAuth();
+  const canEditEnv = ability.can('update', 'infra.environments');
   const { data: all = [] } = useQuery({ queryKey: ['/infra/environments'], queryFn: async () => (await api.get('/infra/environments')).data as Row[] });
   const rows = all.filter((r) => r.projectId === projectId);
 
@@ -315,6 +317,7 @@ function EnvironmentsManager({ projectId, canEdit }: { projectId: number; canEdi
               <>
                 <RecordForm fields={envFields} value={editing} onChange={(n, v) => setEditing((p) => ({ ...(p ?? {}), [n]: v }))} />
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => trySave(editing)}>Save environment</button>
+                <ActivityPanel parentType="environment" parentId={env.id as number} canEdit={canEditEnv} />
               </>
             )}
             <IntegrationsManager environmentId={env.id as number} canEdit={canEdit} />
@@ -354,8 +357,9 @@ function EnvironmentsManager({ projectId, canEdit }: { projectId: number; canEdi
 function ProjectEditor({ initial, canEdit, onClose, initialTab = 'overview' }: { initial: Row; canEdit: boolean; onClose: () => void; initialTab?: 'overview' | 'environments' }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { ability } = useAuth();
   const [proj, setProj] = useState<Row>(initial);
-  const [tab, setTab] = useState<'overview' | 'environments'>(initialTab);
+  const [tab, setTab] = useState<'overview' | 'environments' | 'notes'>(initialTab);
   const [err, setErr] = useState('');
   const id = proj.id as number | undefined;
 
@@ -411,9 +415,14 @@ function ProjectEditor({ initial, canEdit, onClose, initialTab = 'overview' }: {
         <div className="tabs" style={{ margin: '14px 0' }}>
           <button type="button" className={'tab' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>Overview</button>
           <button type="button" className={'tab' + (tab === 'environments' ? ' active' : '')} onClick={() => setTab('environments')}>Environments</button>
+          <button type="button" className={'tab' + (tab === 'notes' ? ' active' : '')} onClick={() => setTab('notes')}>Notes &amp; activity</button>
         </div>
 
-        {tab === 'overview' ? (
+        {tab === 'notes' ? (
+          id
+            ? <ActivityPanel parentType="project" parentId={id} canEdit={ability.can('update', 'infra.projects')} />
+            : <p className="muted">Save the project first, then add notes here.</p>
+        ) : tab === 'overview' ? (
           <>
             <RecordForm fields={projectFields} value={proj} onChange={(n, v) => setProj((p) => ({ ...p, [n]: v }))} />
             {err && <div className="error-text">{err}</div>}
