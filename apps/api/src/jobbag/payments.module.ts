@@ -40,6 +40,9 @@ export class PaymentsService extends CrudService<Payment> {
    * Mark a payment paid and, if it's recurring, auto-create the next cycle anchored to the ACTUAL
    * paid date (so "due Jan 1, paid Jan 2" → next cycle starts from Jan 2). Stops at tenureEnd.
    * One Payment row per cycle = full history; spawnedNext guards against double-spawn.
+   * A blank Period from is filled with the due date (else the paid date); for a recurring payment a
+   * blank Period to becomes one cycle later minus a day. The next cycle's period continues from there
+   * (day after this Period to, one cycle long). Periods already filled in are never changed.
    */
   async markPaid(id: number, paidDate?: string): Promise<{ paid: Payment; next: Payment | null }> {
     const p = await this.repo.findOne({ where: { id } as FindOptionsWhere<Payment> });
@@ -51,19 +54,32 @@ export class PaymentsService extends CrudService<Payment> {
     const paid = (paidDate && paidDate.trim()) || new Date().toISOString().slice(0, 10);
     p.status = 'paid';
     p.paidDate = paid;
+    const recurring = !!p.frequency && p.frequency !== 'ONE_TIME';
+    if (!p.periodFrom) p.periodFrom = p.dueDate || paid;
+    if (!p.periodTo && recurring) {
+      const end = this.addCycle(p.periodFrom, p.frequency, 1, p.customMonths);
+      if (end) p.periodTo = this.minusDay(end);
+    }
 
     let next: Payment | null = null;
-    if (p.frequency && p.frequency !== 'ONE_TIME' && !p.spawnedNext) {
+    if (recurring && !p.spawnedNext) {
       const nextDue = this.advance(paid, p.frequency, p.customMonths);
       if (nextDue && (!p.tenureEnd || nextDue <= p.tenureEnd)) {
         const series = p.seriesId || randomUUID();
         p.seriesId = series;
+        // the next cycle's period continues the chain: day after this Period to, one cycle long
+        const nextFrom = p.periodTo ? this.plusDay(p.periodTo) : null;
+        let nextTo: string | null = null;
+        if (nextFrom) {
+          const end = this.addCycle(nextFrom, p.frequency, 1, p.customMonths);
+          if (end) nextTo = this.minusDay(end);
+        }
         next = await this.repo.save(this.repo.create({
           direction: p.direction, vendorServiceId: p.vendorServiceId ?? null, vendorId: p.vendorId ?? null,
           clientId: p.clientId ?? null, amount: p.amount ?? null, currency: p.currency ?? null,
           paymentMethod: p.paymentMethod ?? null, forWhat: p.forWhat ?? null,
           frequency: p.frequency, customMonths: p.customMonths ?? null, tenureEnd: p.tenureEnd ?? null,
-          seriesId: series, dueDate: nextDue, status: 'due', spawnedNext: false, importUid: randomUUID(),
+          seriesId: series, dueDate: nextDue, status: 'due', spawnedNext: false, importUid: randomUUID(), periodFrom: nextFrom, periodTo: nextTo,
         } as DeepPartial<Payment>));
       }
       p.spawnedNext = true;
@@ -85,6 +101,12 @@ export class PaymentsService extends CrudService<Payment> {
     d.setUTCMonth(d.getUTCMonth() + months * n);
     const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
     d.setUTCDate(Math.min(day, lastDay));
+    return d.toISOString().slice(0, 10);
+  }
+
+  private plusDay(ymd: string): string {
+    const d = new Date(ymd + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
     return d.toISOString().slice(0, 10);
   }
 
