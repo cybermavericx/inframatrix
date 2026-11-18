@@ -7,9 +7,12 @@ This is the author's **personal open-source showcase**. The UI footer, auth scre
 credit **Muhammed Noufal** with links to muhammednoufal.cybermavericx.com, cybermavericx.com and
 github.com/cybermavericx/inframatrix. All branding text lives in **two files only**:
 `apps/web/src/branding.ts` (UI footer) and `apps/api/src/branding.ts` (email footer). `Footer.tsx` and
-`mail/template.ts` just read them and are identical in both editions; when porting a commit between
-editions, leave both `branding.ts` files out. A separate company build exists elsewhere — never bring any employer
-name, domain, email, server, data or DB dump into this repo.
+`mail/template.ts` just read them. Every change here is a clean implementation for this repo: never
+bring any employer name, domain, email, server, branch name, data or DB dump into it.
+
+## How we work
+See **docs/DEVELOPMENT.md**: workflow (branch from `main`, PR, maintainer merges), local QA on a scratch
+DB, and lessons from past changes.
 
 ## Gotchas
 - Dev seed drops the schema (`NODE_ENV !== 'production'`); on a server use
